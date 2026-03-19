@@ -6,12 +6,10 @@ import {
   HiOutlineChevronLeft, HiOutlineVideoCamera,
   HiOutlinePaperAirplane, HiOutlineEyeSlash, 
   HiUsers, HiMagnifyingGlass, HiOutlineBell,
-  HiOutlinePhoto, HiOutlineMicrophone, HiOutlineStopCircle,
-  HiPlay, HiPause
+  HiOutlinePhoto, HiOutlineMicrophone, HiOutlineStopCircle
 } from "react-icons/hi2";
 import { FaPhone } from "react-icons/fa";
 import { AnimatePresence, motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
 
 // Neural Components
 import MoodSelector from "./MoodSelector";
@@ -19,160 +17,152 @@ import GroupMessenger from "./GroupMessenger";
 import Notification from "./Notifications";
 import Settings from "./Settings";
 
-// 🔥 ONLY CHANGED / IMPORTANT FIXED VERSION
+// Constants (আপনার প্রজেক্ট অনুযায়ী এডিট করে নিন যদি প্রয়োজন হয়)
+const API_URL = "https://your-render-server.onrender.com";
+const AUTH_AUDIENCE = "your-auth0-audience";
 
-const getAuthToken = useCallback(async () => {
-  try {
-    if (tokenCache.current) return tokenCache.current;
+const Messenger = ({ socket }) => {
+  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
+  const [conversations, setConversations] = useState([]);
+  const [currentChat, setCurrentChat] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("chats");
+  const [isIncognito, setIsIncognito] = useState(false);
+  const [showNotification, setShowNotification] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [selectedMood, setSelectedMood] = useState("Neutral");
+  const [typingUser, setTypingUser] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  
+  const scrollRef = useRef();
+  const fileInputRef = useRef();
+  const tokenCache = useRef(null);
 
-    const token = await getAccessTokenSilently({
-      authorizationParams: {
-        audience: AUTH_AUDIENCE,
-        scope: "openid profile email",
-      },
+  // --- Functions ---
+
+  const getAuthToken = useCallback(async () => {
+    try {
+      if (tokenCache.current) return tokenCache.current;
+      const token = await getAccessTokenSilently({
+        authorizationParams: {
+          audience: AUTH_AUDIENCE,
+          scope: "openid profile email",
+        },
+      });
+      tokenCache.current = token;
+      return token;
+    } catch (e) {
+      console.error("❌ Token Error:", e);
+      return null;
+    }
+  }, [getAccessTokenSilently]);
+
+  const neuralApi = useCallback(async () => {
+    const token = await getAuthToken();
+    if (!token) throw new Error("No token");
+    return axios.create({
+      baseURL: API_URL,
+      headers: { Authorization: `Bearer ${token}` },
     });
+  }, [getAuthToken]);
 
-    tokenCache.current = token;
-    return token;
-  } catch (e) {
-    console.error("❌ Token Error:", e);
-    return null;
-  }
-}, [getAccessTokenSilently]);
-
-// ✅ SAFE AXIOS INSTANCE
-const neuralApi = useCallback(async () => {
-  const token = await getAuthToken();
-
-  if (!token) throw new Error("No token");
-
-  return axios.create({
-    baseURL: API_URL,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-}, [getAuthToken]);
-
-// ❌ REMOVE THIS BLOCK (CRASH করতেছিল)
-/*
-useEffect(() => {
-  const setupOnyx = async () => {
-    await OnyxEngine.init();
-    const loop = async () => {
-      if (videoRef.current) {
-        await OnyxEngine.process(videoRef.current);
-      }
-      requestAnimationFrame(loop);
-    };
-    loop();
-  };
-  setupOnyx();
-}, []);
-*/
-
-// ✅ FETCH CONVERSATIONS FIX
-const fetchConversations = useCallback(async () => {
-  if (!isAuthenticated || authLoading) return;
-
-  try {
-    const api = await neuralApi();
-    const res = await api.get("/api/messages/conversations");
-
-    setConversations(Array.isArray(res.data) ? res.data : []);
-  } catch (err) {
-    console.error("❌ Sync Error:", err?.response?.data || err.message);
-  }
-}, [isAuthenticated, authLoading, neuralApi]);
-
-// ✅ FETCH MESSAGES FIX
-const fetchMessages = async (convId) => {
-  if (!convId) return;
-
-  setIsLoadingMessages(true);
-
-  try {
-    const api = await neuralApi();
-    const res = await api.get(`/api/messages/${convId}`);
-
-    setMessages(res.data || []);
-  } catch (err) {
-    console.error("❌ Message Error:", err?.response?.data || err.message);
-  } finally {
-    setIsLoadingMessages(false);
-  }
-};
-
-// ✅ SEND MESSAGE FIX
-const handleSend = async (mediaUrl = null, type = "text") => {
-  if ((!newMessage.trim() && !mediaUrl) || !currentChat || !user) return;
-
-  const msgData = {
-    senderId: user.sub,
-    senderName: isIncognito ? "Ghost-Drifter" : user.name || "Drifter",
-    senderAvatar: isIncognito ? getAvatar("Ghost") : user.picture,
-    text: newMessage,
-    media: mediaUrl,
-    mediaType: type,
-    conversationId: currentChat._id,
-    neuralMood: selectedMood,
-    isIncognito,
-    createdAt: new Date(),
-  };
-
-  setMessages((prev) => [...prev, { ...msgData, _id: Date.now().toString() }]);
-  setNewMessage("");
-
-  const s = socket?.current || socket;
-  if (s) {
-    const receiverId = currentChat.members?.find(m => m !== user.sub);
-    s.emit("sendMessage", { ...msgData, receiverId });
-  }
-
-  try {
-    if (!isIncognito) {
+  const fetchConversations = useCallback(async () => {
+    if (!isAuthenticated || authLoading) return;
+    try {
       const api = await neuralApi();
-      await api.post("/api/messages/message", msgData);
+      const res = await api.get("/api/messages/conversations");
+      setConversations(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("❌ Sync Error:", err?.response?.data || err.message);
     }
-  } catch (err) {
-    console.error("❌ Send Error:", err?.response?.data || err.message);
-  }
-};
+  }, [isAuthenticated, authLoading, neuralApi]);
 
-// ✅ SAFE SOCKET
-useEffect(() => {
-  const s = socket?.current || socket;
-  if (!s || !user) return;
+  const fetchMessages = useCallback(async (convId) => {
+    if (!convId) return;
+    setIsLoadingMessages(true);
+    try {
+      const api = await neuralApi();
+      const res = await api.get(`/api/messages/${convId}`);
+      setMessages(res.data || []);
+    } catch (err) {
+      console.error("❌ Message Error:", err?.response?.data || err.message);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, [neuralApi]);
 
-  const messageHandler = (data) => {
-    if (currentChat?._id === data.conversationId) {
-      setMessages((prev) => [...prev, data]);
+  const handleSend = async (mediaUrl = null, type = "text") => {
+    if ((!newMessage.trim() && !mediaUrl) || !currentChat || !user) return;
+
+    const msgData = {
+      senderId: user.sub,
+      senderName: isIncognito ? "Ghost-Drifter" : user.name || "Drifter",
+      text: newMessage,
+      media: mediaUrl,
+      mediaType: type,
+      conversationId: currentChat._id,
+      neuralMood: selectedMood,
+      isIncognito,
+      createdAt: new Date(),
+    };
+
+    setMessages((prev) => [...prev, { ...msgData, _id: Date.now().toString() }]);
+    setNewMessage("");
+
+    const s = socket?.current || socket;
+    if (s) {
+      const receiverId = currentChat.members?.find(m => m !== user.sub);
+      s.emit("sendMessage", { ...msgData, receiverId });
+    }
+
+    try {
+      if (!isIncognito) {
+        const api = await neuralApi();
+        await api.post("/api/messages/message", msgData);
+      }
+    } catch (err) {
+      console.error("❌ Send Error:", err?.response?.data || err.message);
     }
   };
 
-  s.on("getMessage", messageHandler);
+  // --- Effects ---
 
-  return () => {
-    s.off("getMessage", messageHandler);
-  };
-}, [socket, currentChat, user]);
+  useEffect(() => {
+    const s = socket?.current || socket;
+    if (!s || !user) return;
 
-// ✅ LOAD DATA SAFELY
-useEffect(() => {
-  if (isAuthenticated && !authLoading) {
-    fetchConversations();
-  }
-}, [isAuthenticated, authLoading]);
+    const messageHandler = (data) => {
+      if (currentChat?._id === data.conversationId) {
+        setMessages((prev) => [...prev, data]);
+      }
+    };
 
-useEffect(() => {
-  if (currentChat) {
-    fetchMessages(currentChat._id);
-  }
-}, [currentChat]);
+    s.on("getMessage", messageHandler);
+    return () => s.off("getMessage", messageHandler);
+  }, [socket, currentChat, user]);
 
-useEffect(() => {
-  scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-}, [messages]);
+  useEffect(() => {
+    if (isAuthenticated && !authLoading) fetchConversations();
+  }, [isAuthenticated, authLoading, fetchConversations]);
+
+  useEffect(() => {
+    if (currentChat) fetchMessages(currentChat._id);
+  }, [currentChat, fetchMessages]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Placeholder functions for UI actions
+  const getAvatar = (name) => `https://ui-avatars.com/api/?name=${name}&background=random`;
+  const initiateCall = (type) => console.log(`Initiating ${type} call...`);
+  const handleFileUpload = () => console.log("Upload logic here...");
+  const startRecording = () => setIsRecording(true);
+  const stopRecording = () => setIsRecording(false);
+  const NeonSpinner = () => <div className="text-cyan-500 text-center py-10 animate-pulse">Scanning Grid...</div>;
+  const NeuralAudioPlayer = ({ url }) => <div className="p-2 bg-white/10 rounded">Audio Signal</div>;
 
   return (
     <div className={`fixed inset-0 text-white h-[100dvh] overflow-hidden transition-all duration-700 ${isIncognito ? 'bg-[#0a0010]' : 'bg-[#02040a]'}`}>
@@ -195,12 +185,7 @@ useEffect(() => {
         <header className="p-5 pt-12 flex flex-col gap-4 bg-black/40 border-b border-white/5 backdrop-blur-3xl">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <img 
-                src={user?.picture || getAvatar(user?.name)} 
-                referrerPolicy="no-referrer"
-                className="w-10 h-10 rounded-xl border border-cyan-500/30 object-cover" 
-                alt="Profile" 
-              />
+              <img src={user?.picture || getAvatar(user?.name)} referrerPolicy="no-referrer" className="w-10 h-10 rounded-xl border border-cyan-500/30 object-cover" alt="Profile" />
               <div>
                 <h1 className="text-lg font-black italic text-cyan-500 uppercase tracking-tighter">ONYXDRIFT</h1>
                 <p className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Node: {user?.nickname || "Unknown"}</p>
@@ -225,12 +210,7 @@ useEffect(() => {
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2 pb-32">
           {activeTab === "chats" && conversations.map(c => (
             <motion.div whileTap={{ scale: 0.98 }} key={c._id} onClick={() => setCurrentChat(c)} className="p-3.5 flex items-center gap-4 bg-white/[0.02] border border-white/5 rounded-2xl cursor-pointer hover:bg-white/[0.05] transition-all">
-              <img 
-                src={c.userDetails?.avatar || getAvatar(c.userDetails?.name)} 
-                referrerPolicy="no-referrer"
-                className="w-12 h-12 rounded-xl object-cover border border-white/10" 
-                alt="Avatar" 
-              />
+              <img src={c.userDetails?.avatar || getAvatar(c.userDetails?.name)} referrerPolicy="no-referrer" className="w-12 h-12 rounded-xl object-cover border border-white/10" alt="Avatar" />
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-center">
                   <span className="font-bold text-sm text-zinc-200">{c.userDetails?.name || "Drifter"}</span>
@@ -276,12 +256,7 @@ useEffect(() => {
             <header className="p-3 pt-12 flex justify-between items-center border-b border-white/5 bg-black/80 backdrop-blur-xl">
                 <div className="flex items-center gap-2">
                   <button onClick={() => setCurrentChat(null)} className="text-zinc-400 p-2"><HiOutlineChevronLeft size={28}/></button>
-                  <img 
-                    src={currentChat.userDetails?.avatar || getAvatar(currentChat.userDetails?.name)} 
-                    referrerPolicy="no-referrer"
-                    className="w-9 h-9 rounded-lg border border-cyan-500/20 object-cover" 
-                    alt="User" 
-                  />
+                  <img src={currentChat.userDetails?.avatar || getAvatar(currentChat.userDetails?.name)} referrerPolicy="no-referrer" className="w-9 h-9 rounded-lg border border-cyan-500/20 object-cover" alt="User" />
                   <div>
                     <h3 className="font-bold text-xs">{currentChat.userDetails?.name || "Anonymous"}</h3>
                     <div className="flex items-center gap-1">
@@ -292,12 +267,8 @@ useEffect(() => {
                 </div>
                 
                 <div className="flex gap-1 pr-2">
-                  <button onClick={() => initiateCall('audio')} className="p-2.5 text-zinc-400 hover:text-cyan-500 hover:bg-white/5 rounded-xl transition-all">
-                    <FaPhone size={16}/>
-                  </button>
-                  <button onClick={() => initiateCall('video')} className="p-2.5 text-zinc-400 hover:text-cyan-500 hover:bg-white/5 rounded-xl transition-all">
-                    <HiOutlineVideoCamera size={22}/>
-                  </button>
+                  <button onClick={() => initiateCall('audio')} className="p-2.5 text-zinc-400 hover:text-cyan-500 hover:bg-white/5 rounded-xl transition-all"><FaPhone size={16}/></button>
+                  <button onClick={() => initiateCall('video')} className="p-2.5 text-zinc-400 hover:text-cyan-500 hover:bg-white/5 rounded-xl transition-all"><HiOutlineVideoCamera size={22}/></button>
                 </div>
             </header>
             
@@ -305,14 +276,7 @@ useEffect(() => {
               {isLoadingMessages ? <NeonSpinner /> : messages.map((m, i) => (
                 <div key={m._id || i} className={`flex flex-col ${m.senderId === user?.sub ? 'items-end' : 'items-start'}`}>
                   <div className={`px-4 py-2.5 rounded-2xl max-w-[85%] border ${m.senderId === user?.sub ? "bg-cyan-500/10 border-cyan-500/20 text-white" : "bg-white/5 border-white/10 text-zinc-300"}`}>
-                    {m.mediaType === "image" && m.media && (
-                      <img 
-                        src={m.media} 
-                        referrerPolicy="no-referrer"
-                        alt="Neural" 
-                        className="rounded-lg mb-2 max-h-60 w-full object-cover border border-white/10" 
-                      />
-                    )}
+                    {m.mediaType === "image" && m.media && <img src={m.media} referrerPolicy="no-referrer" alt="Neural" className="rounded-lg mb-2 max-h-60 w-full object-cover border border-white/10" />}
                     {m.mediaType === "voice" && m.media && <NeuralAudioPlayer url={m.media} />}
                     {m.text && <p className="text-[13px] leading-relaxed break-words">{m.text}</p>}
                   </div>
@@ -327,7 +291,7 @@ useEffect(() => {
             <div className="fixed bottom-0 left-0 right-0 p-4 pb-10 bg-black/90 backdrop-blur-2xl border-t border-white/5">
               <MoodSelector currentMood={selectedMood} onSelectMood={setSelectedMood} />
               <div className="flex items-center gap-2 mt-4 bg-white/5 p-1.5 pl-4 rounded-3xl border border-white/10">
-                <input type="file" ref={fileInputRef} onChange={(e) => handleFileUpload(e, null, "image")} className="hidden" accept="image/*" />
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
                 <button onClick={() => fileInputRef.current.click()} className="text-zinc-500 p-2 hover:text-cyan-500">
                   <HiOutlinePhoto size={22} className={isUploading ? "animate-spin" : ""} />
                 </button>
@@ -343,7 +307,7 @@ useEffect(() => {
                   className="bg-transparent flex-1 outline-none text-white text-[13px]" 
                 />
                 {newMessage.trim() === "" ? (
-                  <button onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording} className={`p-3 rounded-full ${isRecording ? 'bg-red-500 animate-pulse text-white' : 'bg-white/5 text-zinc-400'}`}>
+                  <button onMouseDown={startRecording} onMouseUp={stopRecording} className={`p-3 rounded-full ${isRecording ? 'bg-red-500 animate-pulse text-white' : 'bg-white/5 text-zinc-400'}`}>
                     {isRecording ? <HiOutlineStopCircle size={20} /> : <HiOutlineMicrophone size={20} />}
                   </button>
                 ) : (
@@ -354,9 +318,10 @@ useEffect(() => {
               </div>
             </div>
           </motion.div>
-        )}s
+        )}
       </AnimatePresence>
     </div>
   );
+};
 
 export default Messenger;

@@ -15,7 +15,7 @@ import Notification from "./Notifications";
 import Settings from "./Settings";
 import LegacySetup from '../components/LegacySetup';
 
-const API_URL = "https://onyx-drift-app-final-u29m.onrender.com";
+const API_URL = "https://my-cool-app-cvm7.onrender.com";
 
 /**
  * 🛠️ AUTH0 CONFIGURATION

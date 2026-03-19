@@ -9,10 +9,9 @@ import { useAuth0 } from "@auth0/auth0-react";
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import Webcam from "react-webcam";
-import { FaceMesh } from "@mediapipe/face_mesh";
-import { Camera } from "@mediapipe/camera_utils";
 
-const API_URL = "https://onyx-drift-app-final-u29m.onrender.com";
+
+const API_URL = "https://my-cool-app-cvm7.onrender.com";
 const AUTH_AUDIENCE = "https://onyx-drift-api.com";
 
 /* ==========================================================

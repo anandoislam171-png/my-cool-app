@@ -13,7 +13,7 @@ const ProfilePage = () => {
   const navigate = useNavigate();
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
 
-  const API_URL = "https://onyx-drift-app-final-u29m.onrender.com";
+  const API_URL = "https://my-cool-app-cvm7.onrender.com";
 
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);

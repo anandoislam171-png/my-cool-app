@@ -55,7 +55,7 @@ cloudinary.config({
 
 // CORS (Updated for better reliability)
 app.use(cors({
-  origin: ["http://localhost:5173","http://localhost:5173", "https://onyx-drift.com"], // আপনার ফ্রন্টএন্ড ইউআরএল দিন
+  origin: ["http://localhost:5173","https://my-cool-app-cvm7.onrender.com", "https://onyx-drift.com"], // আপনার ফ্রন্টএন্ড ইউআরএল দিন
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
