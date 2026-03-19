@@ -1,0 +1,150 @@
+/* ১. গুগল ফন্ট ইম্পোর্ট */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700;800&display=swap');
+
+/* ২. টেলউইন্ড ৪ এর নতুন ইম্পোর্ট সিস্টেম (Fix for PostCSS error) */
+@import "tailwindcss";
+
+/* ৩. বেইস স্টাইলস */
+@theme {
+  --font-jakarta: "Plus Jakarta Sans", sans-serif;
+  --color-zenith-bg: #050508;
+  --color-cyan-neon: #00BFFF;
+}
+
+@layer base {
+  body {
+    background-color: #050508; 
+    color: #e2e8f0;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ৪. প্রিমিয়াম স্ক্রলবার */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #050508;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00BFFF;
+}
+
+/* ৫. কাস্টম ইউটিলিটি ক্লাস */
+@layer components {
+  /* প্রিমিয়াম গ্লাস কার্ড */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 2.5rem;
+    box-shadow: 0 4px 6px rgba(255, 255, 255, 0.05);
+  }
+
+  /* নিওন বাটন */
+  .zenith-btn {
+    background: #00BFFF;
+    color: #000;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.8rem 1.5rem;
+    border-radius: 1rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 15px rgba(0, 191, 255, 0.3);
+  }
+
+  .zenith-btn:hover {
+    box-shadow: 0 0 25px rgba(0, 191, 255, 0.6);
+    transform: translateY(-2px);
+  }
+}
+
+/* ৬. এনিমেশন ও ব্যাকগ্রাউন্ড টেক্সচার */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-15px); }
+}
+
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+.bg-grainy {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.03;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* স্ক্রলবার ইউটিলিটি */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #374248; }
+/* ১. সাইবার স্ক্যান লাইন অ্যানিমেশন */
+@keyframes scan {
+  0% { top: 0%; opacity: 0; }
+  50% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.animate-scan {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(to right, transparent, #22d3ee, transparent);
+  box-shadow: 0 0 15px #22d3ee;
+  animation: scan 2s linear infinite;
+}
+
+/* ২. স্লো রোটেশন (বুট স্ক্রিনের জন্য) */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+/* ৩. পালস ইফেক্ট (সিকিউরিটি ওয়ার্নিংয়ের জন্য) */
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.05); }
+}
+
+.animate-pulse-red {
+  animation: pulse-red 1.5s ease-in-out infinite;
+}
+
+/* ৪. গ্লোয়িং বর্ডার ইফেক্ট */
+.cyber-border {
+  border: 1px solid rgba(34, 211, 238, 0.3);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.1);
+  transition: all 0.3s ease;
+}
+
+.cyber-border:hover {
+  border-color: #22d3ee;
+  box-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
+}
