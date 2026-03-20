@@ -6,7 +6,7 @@ import upload from "../middleware/multer.js";
 const router = express.Router();
 
 /* ==========================================================
-   🔐 HELPER: AUTO CREATE USER (GLOBAL FIX)
+    🔐 HELPER: AUTO CREATE/GET USER (GLOBAL FIX)
 ========================================================== */
 const ensureUserExists = async (authPayload) => {
   const auth0Id = authPayload?.sub;
@@ -17,30 +17,26 @@ const ensureUserExists = async (authPayload) => {
   if (!user) {
     user = new User({
       auth0Id,
-      name: authPayload.name || "Drifter",
-      nickname:
-        authPayload.nickname ||
-        "drifter_" + Math.floor(Math.random() * 10000),
-      avatar:
-        authPayload.picture ||
-        `https://api.dicebear.com/7.x/bottts/svg?seed=${auth0Id}`,
+      displayName: authPayload.name || "Drifter", // model এ displayName থাকলে এটি ব্যবহার করুন
+      username: authPayload.nickname || "drifter_" + Math.floor(Math.random() * 10000),
+      avatar: authPayload.picture || `https://api.dicebear.com/7.x/bottts/svg?seed=${auth0Id}`,
       email: authPayload.email || "",
     });
 
     await user.save();
-    console.log("✅ Auto user created");
+    console.log("✅ New OnyxDrift identity initialized");
   }
 
   return user;
 };
 
 /* ==========================================================
-   1️⃣ GET CURRENT USER
+    1️⃣ GET CURRENT USER (/api/users/me)
 ========================================================== */
 router.get("/me", async (req, res) => {
   try {
     const user = await ensureUserExists(req.auth?.payload);
-    if (!user) return res.status(401).json({ msg: "Unauthorized" });
+    if (!user) return res.status(401).json({ msg: "Neural link not found" });
 
     const data = user.toObject();
     data.followersCount = user.followers?.length || 0;
@@ -49,12 +45,12 @@ router.get("/me", async (req, res) => {
 
     res.json(data);
   } catch (err) {
-    res.status(500).json({ msg: "Server error" });
+    res.status(500).json({ msg: "Neural core error" });
   }
 });
 
 /* ==========================================================
-   2️⃣ GET USER PROFILE (FIXED)
+    2️⃣ GET USER PROFILE (FIXED)
 ========================================================== */
 router.get("/:id", async (req, res) => {
   try {
@@ -62,27 +58,27 @@ router.get("/:id", async (req, res) => {
     const myId = req.auth?.payload?.sub;
 
     const user = await User.findOne({
-      $or: [{ auth0Id: targetId }, { nickname: targetId }],
-    });
+      $or: [{ auth0Id: targetId }, { username: targetId }, { nickname: targetId }],
+    }).populate('followers following', 'username avatar displayName');
 
     if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+      return res.status(404).json({ msg: "Subject not found in network" });
     }
 
     const data = user.toObject();
     data.followersCount = user.followers?.length || 0;
     data.followingCount = user.following?.length || 0;
     data.isMe = user.auth0Id === myId;
-    data.isFollowing = user.followers?.includes(myId);
+    data.isFollowing = user.followers?.some(f => f.auth0Id === myId || f === myId);
 
     res.json(data);
   } catch (err) {
-    res.status(500).json({ msg: "Fetch error" });
+    res.status(500).json({ msg: "Profile decryption failed" });
   }
 });
 
 /* ==========================================================
-   3️⃣ UPDATE PROFILE
+    3️⃣ UPDATE PROFILE
 ========================================================== */
 router.put(
   "/update",
@@ -97,6 +93,7 @@ router.put(
 
       const updateFields = { ...req.body };
 
+      // Cloudinary বা Multer এর পাথ হ্যান্ডলিング
       if (req.files?.avatar) {
         updateFields.avatar = req.files.avatar[0].path;
       }
@@ -112,13 +109,13 @@ router.put(
 
       res.json(user);
     } catch (err) {
-      res.status(500).json({ msg: "Update failed" });
+      res.status(500).json({ msg: "Neural update failed" });
     }
   }
 );
 
 /* ==========================================================
-   4️⃣ FOLLOW / UNFOLLOW (FIXED ROUTE)
+    4️⃣ FOLLOW / UNFOLLOW (OPTIMIZED)
 ========================================================== */
 router.post("/:targetId/follow", async (req, res) => {
   try {
@@ -126,57 +123,59 @@ router.post("/:targetId/follow", async (req, res) => {
     const targetId = decodeURIComponent(req.params.targetId);
 
     if (!myId) return res.status(401).json({ msg: "Unauthorized" });
-    if (myId === targetId)
-      return res.status(400).json({ msg: "Cannot follow yourself" });
+    if (myId === targetId) return res.status(400).json({ msg: "Self-sync not allowed" });
 
-    await ensureUserExists(req.auth.payload);
+    const [me, targetUser] = await Promise.all([
+      User.findOne({ auth0Id: myId }),
+      User.findOne({ auth0Id: targetId })
+    ]);
 
-    const targetUser = await User.findOne({ auth0Id: targetId });
-    if (!targetUser)
-      return res.status(404).json({ msg: "Target not found" });
+    if (!targetUser || !me) return res.status(404).json({ msg: "Target not found" });
 
     const isFollowing = targetUser.followers.includes(myId);
 
     if (isFollowing) {
-      await User.updateOne(
-        { auth0Id: myId },
-        { $pull: { following: targetId } }
-      );
-      await User.updateOne(
-        { auth0Id: targetId },
-        { $pull: { followers: myId } }
-      );
-
+      // Unfollow Logic
+      await Promise.all([
+        User.updateOne({ auth0Id: myId }, { $pull: { following: targetId } }),
+        User.updateOne({ auth0Id: targetId }, { $pull: { followers: myId } })
+      ]);
       return res.json({ isFollowing: false });
     } else {
-      await User.updateOne(
-        { auth0Id: myId },
-        { $addToSet: { following: targetId } }
-      );
-      await User.updateOne(
-        { auth0Id: targetId },
-        { $addToSet: { followers: myId } }
-      );
-
+      // Follow Logic
+      await Promise.all([
+        User.updateOne({ auth0Id: myId }, { $addToSet: { following: targetId } }),
+        User.updateOne({ auth0Id: targetId }, { $addToSet: { followers: myId } })
+      ]);
       return res.json({ isFollowing: true });
     }
   } catch (err) {
-    res.status(500).json({ msg: "Follow error" });
+    res.status(500).json({ msg: "Follow/Unfollow failed" });
   }
 });
 
 /* ==========================================================
-   5️⃣ GET USER POSTS (FIXED ROUTE)
+    5️⃣ GET USER POSTS (FIXED)
 ========================================================== */
 router.get("/:userId/posts", async (req, res) => {
   try {
     const userId = decodeURIComponent(req.params.userId);
 
+    // ইউজারকে খুঁজে তার অবজেক্ট আইডি বের করা (যদি প্রয়োজন হয়)
+    const targetUser = await User.findOne({ 
+      $or: [{ auth0Id: userId }, { username: userId }] 
+    });
+
+    if (!targetUser) return res.status(404).json({ msg: "User posts not found" });
+
     const posts = await Post.find({
-      $or: [{ authorAuth0Id: userId }, { author: userId }],
+      $or: [
+        { authorAuth0Id: targetUser.auth0Id }, 
+        { author: targetUser._id }
+      ],
     })
-      .sort({ createdAt: -1 })
-      .lean();
+    .sort({ createdAt: -1 })
+    .lean();
 
     res.json(posts);
   } catch (err) {
