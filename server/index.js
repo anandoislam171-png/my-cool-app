@@ -40,9 +40,9 @@ const server = http.createServer(app);
 const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 redis.on("error", (err) => console.log("Redis Error: ", err));
 
-// 🔥 AUTH0 CONFIG (Ensure this matches your Frontend)
+// 🔥 AUTH0 CONFIG
 const checkJwt = auth({
-  audience: 'https://onyx-drift-api', // 🚨 আপনার ফ্রন্টএন্ডের AUTH_AUDIENCE এর সাথে এটি মিলতে হবে
+  audience: 'https://onyx-drift-api', 
   issuerBaseURL: 'https://dev-ds5qpkme1dcprm7y.us.auth0.com/',
   tokenSigningAlg: 'RS256'
 });
@@ -54,20 +54,23 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// 🌐 CORS (Dynamic and Secure)
+// 🌐 CORS (আপনার এরর ফিক্স করার জন্য আপডেট করা হয়েছে)
 const allowedOrigins = [
   "http://localhost:5173",
   "https://onyx-drift.com",
-  "https://onyx-drift-app-final.vercel.app/", // আপনার Vercel ডোমেইন এখানে দিন
+  "https://www.onyx-drift.com", // 🚨 আপনার এরর অনুযায়ী এটি অত্যন্ত জরুরি ছিল
+  "https://onyx-drift-app-final.vercel.app", // স্লাশ সরানো হয়েছে
   "https://my-cool-app-cvm7.onrender.com"
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
+    // origin না থাকলে (যেমন পোস্টম্যান বা সার্ভার টু সার্ভার) অনুমতি দেওয়া হয়
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.log("🚫 CORS Blocked for Origin:", origin);
+      callback(new Error('Neural Network Access Denied by CORS'));
     }
   },
   credentials: true,
@@ -104,14 +107,12 @@ const updateNeuralPulse = async (req, res, next) => {
 app.get("/", (req, res) => res.send("🚀 OnyxDrift Neural Core Online!"));
 app.use('/api/auth', authRoutes);
 
-// 🔥 X-STYLE PROFILE API (Fixed Route Path)
-// ফ্রন্টএন্ড থেকে /api/users/:username কল করলে এটি কাজ করবে
+// 🔥 X-STYLE PROFILE API
 app.get("/api/users/:username", checkJwt, async (req, res) => {
   try {
     const { username } = req.params;
     const auth0Id = req.auth.payload.sub;
 
-    // ফাইন্ড বাই ইউজারনেম অথবা আইডি
     const user = await User.findOne({ 
       $or: [{ username: username }, { auth0Id: username }] 
     }).populate('followers following');
@@ -120,7 +121,6 @@ app.get("/api/users/:username", checkJwt, async (req, res) => {
 
     const isMe = user.auth0Id === auth0Id;
     
-    // ডাটা রেসপন্স
     res.json({
       ...user._doc,
       isMe,
@@ -135,7 +135,7 @@ app.get("/api/users/:username", checkJwt, async (req, res) => {
   }
 });
 
-// 📝 USER POSTS API (X-Style)
+// 📝 USER POSTS API
 app.get("/api/users/:username/posts", checkJwt, async (req, res) => {
   try {
     const { username } = req.params;
@@ -161,7 +161,7 @@ app.use("/api/groups", checkJwt, updateNeuralPulse, groupRoutes);
 app.use("/api/market", checkJwt, updateNeuralPulse, marketRoutes);
 app.use("/api/admin", checkJwt, updateNeuralPulse, adminRoutes);
 
-// Socket.io (Updated for Production)
+// Socket.io
 const io = new Server(server, { 
   cors: { 
     origin: allowedOrigins,
