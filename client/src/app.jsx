@@ -18,6 +18,8 @@ const Landing = lazy(() => import("./pages/Landing"));
 const JoinPage = lazy(() => import("./pages/JoinPage"));
 const CallPage = lazy(() => import("./pages/CallPage"));
 
+const API_URL = "https://my-cool-app-cvm7.onrender.com";
+
 // Placeholders
 const Analytics = () => <div className="p-10 text-cyan-500 font-mono">NEURAL_ANALYTICS_V1</div>;
 const Explore = () => <div className="p-10 text-cyan-500 font-mono">EXPLORING_GRID_WAVES...</div>;

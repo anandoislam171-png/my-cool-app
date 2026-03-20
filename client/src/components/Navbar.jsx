@@ -24,8 +24,8 @@ const Navbar = ({ setIsPostModalOpen, toggleSidebar, socket }) => {
   const [hasNewNotification, setHasNewNotification] = useState(false);
   const [isGlobalMuted, setIsGlobalMuted] = useState(true);
 
-  const API_URL = "https://onyx-drift-app-final-u29m.onrender.com";
-  const API_AUDIENCE = "https://onyx-drift-api.com";
+  const API_URL = "https://my-cool-app-cvm7.onrender.com";
+  const API_AUDIENCE = "https://onyx-drift-api";
 
   /**
    * ১. সার্চ লজিক (Debounced Search) - Fixed Route

@@ -10,7 +10,7 @@ if (typeof window !== 'undefined') {
 
 const SocketContext = createContext();
 
-const socket = io('https://onyx-drift-app-final-u29m.onrender.com', {
+const socket = io('https://my-cool-app-cvm7.onrender.com', {
     transports: ['websocket'],
     secure: true
 });

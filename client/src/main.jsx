@@ -17,7 +17,7 @@ window.process = { env: { NODE_ENV: 'production' }, browser: true };
 const domain = "dev-ds5qpkme1dcprm7y.us.auth0.com";
 // Client ID-তে 'f' ছোট হাতের এবং 'K' বড় হাতের হবে
 const clientId = "GY0nq3w9kUo1g9Hs6kJ5iwGWOsiHtNAG"; 
-
+const API_URL = "https://my-cool-app-cvm7.onrender.com";
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <Auth0Provider
