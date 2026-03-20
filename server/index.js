@@ -58,7 +58,7 @@ cloudinary.config({
 const allowedOrigins = [
   "http://localhost:5173",
   "https://onyx-drift.com",
-  "https://onyx-drift-web.vercel.app", // আপনার Vercel ডোমেইন এখানে দিন
+  "https://onyx-drift-app-final.vercel.app/", // আপনার Vercel ডোমেইন এখানে দিন
   "https://my-cool-app-cvm7.onrender.com"
 ];
 

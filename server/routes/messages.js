@@ -10,8 +10,8 @@ import User from "../models/User.js";
 
 // ✅ Auth Middleware
 const checkJwt = auth({
-  audience: "https://onyx-drift-api.com",
-  issuerBaseURL: "https://dev-prxn6v2o08xp5loz.us.auth0.com/",
+  audience: "https://onyx-drift-api",
+  issuerBaseURL: "https://my-cool-app-cvm7.onrender.com",
   tokenSigningAlg: "RS256",
 });
 
