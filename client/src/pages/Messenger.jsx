@@ -18,8 +18,8 @@ import Notification from "./Notifications";
 import Settings from "./Settings";
 
 // Constants (আপনার প্রজেক্ট অনুযায়ী এডিট করে নিন যদি প্রয়োজন হয়)
-const API_URL = "https://your-render-server.onrender.com";
-const AUTH_AUDIENCE = "your-auth0-audience";
+const API_URL = "https://my-cool-app-cvm7.onrender.com";
+const AUTH_AUDIENCE = "https://onyx-drift-api";
 
 const Messenger = ({ socket }) => {
   const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();

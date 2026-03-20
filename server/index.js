@@ -16,7 +16,7 @@ import './config/passport.js';
 
 import connectDB from "./config/db.js";
 import User from "./models/User.js";
-import Post from "./models/Post.js"; // Post মডেল যুক্ত করা হয়েছে
+import Post from "./models/Post.js"; 
 import userRoutes from './routes/user.js';
 import postRoutes from "./routes/posts.js";
 import messageRoutes from "./routes/messages.js";
@@ -36,12 +36,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = http.createServer(app);
 
-// Redis
+// Redis (Error handling added)
 const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+redis.on("error", (err) => console.log("Redis Error: ", err));
 
-// 🔥 AUTH0 CONFIG
+// 🔥 AUTH0 CONFIG (Ensure this matches your Frontend)
 const checkJwt = auth({
-  audience: 'https://onyx-drift-api',
+  audience: 'https://onyx-drift-api', // 🚨 আপনার ফ্রন্টএন্ডের AUTH_AUDIENCE এর সাথে এটি মিলতে হবে
   issuerBaseURL: 'https://dev-ds5qpkme1dcprm7y.us.auth0.com/',
   tokenSigningAlg: 'RS256'
 });
@@ -53,9 +54,22 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// CORS (Updated for better reliability)
+// 🌐 CORS (Dynamic and Secure)
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://onyx-drift.com",
+  "https://onyx-drift-web.vercel.app", // আপনার Vercel ডোমেইন এখানে দিন
+  "https://my-cool-app-cvm7.onrender.com"
+];
+
 app.use(cors({
-  origin: ["http://localhost:5173","https://my-cool-app-cvm7.onrender.com", "https://onyx-drift.com"], // আপনার ফ্রন্টএন্ড ইউআরএল দিন
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
@@ -65,12 +79,12 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(passport.initialize());
 
-// Upload folder
+// Static Folder for Uploads
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
-// 🧠 Pulse middleware (Last active status tracking)
+// 🧠 Pulse middleware (Tracking User Activity)
 const updateNeuralPulse = async (req, res, next) => {
   try {
     const auth0Id = req.auth?.payload?.sub;
@@ -90,29 +104,46 @@ const updateNeuralPulse = async (req, res, next) => {
 app.get("/", (req, res) => res.send("🚀 OnyxDrift Neural Core Online!"));
 app.use('/api/auth', authRoutes);
 
-// 🔥 PROFILE SPECIFIC API (X-Style)
-// এই অংশটি সরাসরি এখানে দেওয়া হয়েছে যাতে প্রোফাইল ঠিকভাবে কাজ করে
-app.get("/api/users/profile/:username", checkJwt, async (req, res) => {
+// 🔥 X-STYLE PROFILE API (Fixed Route Path)
+// ফ্রন্টএন্ড থেকে /api/users/:username কল করলে এটি কাজ করবে
+app.get("/api/users/:username", checkJwt, async (req, res) => {
   try {
     const { username } = req.params;
     const auth0Id = req.auth.payload.sub;
 
+    // ফাইন্ড বাই ইউজারনেম অথবা আইডি
     const user = await User.findOne({ 
-      $or: [{ username }, { auth0Id: username }] 
+      $or: [{ username: username }, { auth0Id: username }] 
     }).populate('followers following');
 
-    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!user) return res.status(404).json({ error: "User not found in neural network" });
 
-    // নিজের প্রোফাইল কিনা চেক করা
     const isMe = user.auth0Id === auth0Id;
     
+    // ডাটা রেসপন্স
     res.json({
       ...user._doc,
       isMe,
-      followersCount: user.followers.length,
-      followingCount: user.following.length,
-      isFollowing: user.followers.includes(auth0Id)
+      followersCount: user.followers?.length || 0,
+      followingCount: user.following?.length || 0,
+      isFollowing: user.followers?.includes(auth0Id) || false,
+      joinedAt: user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : "Recently"
     });
+  } catch (err) {
+    console.error("Profile Fetch Error:", err.message);
+    res.status(500).json({ error: "Grid Failure: " + err.message });
+  }
+});
+
+// 📝 USER POSTS API (X-Style)
+app.get("/api/users/:username/posts", checkJwt, async (req, res) => {
+  try {
+    const { username } = req.params;
+    const user = await User.findOne({ $or: [{ username }, { auth0Id: username }] });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const posts = await Post.find({ author: user._id }).sort({ createdAt: -1 });
+    res.json(posts);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -130,14 +161,20 @@ app.use("/api/groups", checkJwt, updateNeuralPulse, groupRoutes);
 app.use("/api/market", checkJwt, updateNeuralPulse, marketRoutes);
 app.use("/api/admin", checkJwt, updateNeuralPulse, adminRoutes);
 
-// Socket.io
-const io = new Server(server, { cors: { origin: "*" } });
+// Socket.io (Updated for Production)
+const io = new Server(server, { 
+  cors: { 
+    origin: allowedOrigins,
+    methods: ["GET", "POST"]
+  } 
+});
 
 // ❌ Global Error Handler
 app.use((err, req, res, next) => {
   if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({ error: "Neural Link Severed", message: "Invalid Token" });
+    return res.status(401).json({ error: "Neural Link Severed", message: "Token Invalid or Expired" });
   }
+  console.error("Global Error:", err);
   res.status(err.status || 500).json({ error: "Grid Breakdown", message: err.message });
 });
 
