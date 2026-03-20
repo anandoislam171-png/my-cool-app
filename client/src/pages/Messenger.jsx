@@ -1,57 +1,33 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import axios from "axios";
-import { 
-  HiChatBubbleLeftRight, HiCog6Tooth, 
-  HiOutlineChevronLeft, HiOutlineVideoCamera,
-  HiOutlinePaperAirplane, HiOutlineEyeSlash, 
-  HiUsers, HiMagnifyingGlass, HiOutlineBell,
-  HiOutlinePhoto, HiOutlineMicrophone, HiOutlineStopCircle
-} from "react-icons/hi2";
-import { FaPhone } from "react-icons/fa";
-import { AnimatePresence, motion } from "framer-motion";
 
-// Neural Components
-import MoodSelector from "./MoodSelector";
-import GroupMessenger from "./GroupMessenger";
-import Notification from "./Notifications";
-import Settings from "./Settings";
-
-// Constants (আপনার প্রজেক্ট অনুযায়ী এডিট করে নিন যদি প্রয়োজন হয়)
+// Constants
 const API_URL = "https://my-cool-app-cvm7.onrender.com";
 const AUTH_AUDIENCE = "https://onyx-drift-api";
 
 const Messenger = ({ socket }) => {
   const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
+
   const [conversations, setConversations] = useState([]);
-  const [currentChat, setCurrentChat] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [activeTab, setActiveTab] = useState("chats");
-  const [isIncognito, setIsIncognito] = useState(false);
-  const [showNotification, setShowNotification] = useState(false);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [selectedMood, setSelectedMood] = useState("Neutral");
-  const [typingUser, setTypingUser] = useState(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  
+  const [currentChat, setCurrentChat] = useState(null);
+
   const scrollRef = useRef();
-  const fileInputRef = useRef();
-  const tokenCache = useRef(null);
 
-  // --- Functions ---
-
+  // ✅ FIXED TOKEN FUNCTION
   const getAuthToken = useCallback(async () => {
     try {
-      if (tokenCache.current) return tokenCache.current;
       const token = await getAccessTokenSilently({
         authorizationParams: {
           audience: AUTH_AUDIENCE,
           scope: "openid profile email",
         },
+        cacheMode: "off", // 🔥 very important
       });
-      tokenCache.current = token;
+
+      console.log("🔥 TOKEN:", token); // debug
+
       return token;
     } catch (e) {
       console.error("❌ Token Error:", e);
@@ -59,111 +35,81 @@ const Messenger = ({ socket }) => {
     }
   }, [getAccessTokenSilently]);
 
-  const neuralApi = useCallback(async () => {
-    const token = await getAuthToken();
-    if (!token) throw new Error("No token");
-    return axios.create({
+  // ✅ AXIOS INSTANCE WITH INTERCEPTOR
+  const api = useRef(null);
+
+  useEffect(() => {
+    api.current = axios.create({
       baseURL: API_URL,
-      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    api.current.interceptors.request.use(async (config) => {
+      const token = await getAuthToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
     });
   }, [getAuthToken]);
 
+  // ✅ FETCH CONVERSATIONS
   const fetchConversations = useCallback(async () => {
     if (!isAuthenticated || authLoading) return;
-    try {
-      const api = await neuralApi();
-      const res = await api.get("/api/messages/conversations");
-      setConversations(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("❌ Sync Error:", err?.response?.data || err.message);
-    }
-  }, [isAuthenticated, authLoading, neuralApi]);
 
-  const fetchMessages = useCallback(async (convId) => {
-    if (!convId) return;
-    setIsLoadingMessages(true);
     try {
-      const api = await neuralApi();
-      const res = await api.get(`/api/messages/${convId}`);
+      const res = await api.current.get("/api/messages/conversations");
+      setConversations(res.data || []);
+    } catch (err) {
+      console.error("❌ Conversations Error:", err?.response?.data || err.message);
+    }
+  }, [isAuthenticated, authLoading]);
+
+  // ✅ FETCH MESSAGES
+  const fetchMessages = useCallback(async (id) => {
+    if (!id) return;
+
+    try {
+      const res = await api.current.get(`/api/messages/${id}`);
       setMessages(res.data || []);
     } catch (err) {
-      console.error("❌ Message Error:", err?.response?.data || err.message);
-    } finally {
-      setIsLoadingMessages(false);
+      console.error("❌ Messages Error:", err?.response?.data || err.message);
     }
-  }, [neuralApi]);
+  }, []);
 
-  const handleSend = async (mediaUrl = null, type = "text") => {
-    if ((!newMessage.trim() && !mediaUrl) || !currentChat || !user) return;
+  // ✅ SEND MESSAGE
+  const handleSend = async () => {
+    if (!currentChat || !user) return;
 
     const msgData = {
       senderId: user.sub,
-      senderName: isIncognito ? "Ghost-Drifter" : user.name || "Drifter",
-      text: newMessage,
-      media: mediaUrl,
-      mediaType: type,
+      text: "Hello",
       conversationId: currentChat._id,
-      neuralMood: selectedMood,
-      isIncognito,
       createdAt: new Date(),
     };
 
-    setMessages((prev) => [...prev, { ...msgData, _id: Date.now().toString() }]);
-    setNewMessage("");
-
-    const s = socket?.current || socket;
-    if (s) {
-      const receiverId = currentChat.members?.find(m => m !== user.sub);
-      s.emit("sendMessage", { ...msgData, receiverId });
-    }
-
     try {
-      if (!isIncognito) {
-        const api = await neuralApi();
-        await api.post("/api/messages/message", msgData);
-      }
+      await api.current.post("/api/messages/message", msgData);
     } catch (err) {
       console.error("❌ Send Error:", err?.response?.data || err.message);
     }
   };
 
-  // --- Effects ---
-
+  // EFFECTS
   useEffect(() => {
-    const s = socket?.current || socket;
-    if (!s || !user) return;
-
-    const messageHandler = (data) => {
-      if (currentChat?._id === data.conversationId) {
-        setMessages((prev) => [...prev, data]);
-      }
-    };
-
-    s.on("getMessage", messageHandler);
-    return () => s.off("getMessage", messageHandler);
-  }, [socket, currentChat, user]);
-
-  useEffect(() => {
-    if (isAuthenticated && !authLoading) fetchConversations();
+    if (isAuthenticated && !authLoading) {
+      fetchConversations();
+    }
   }, [isAuthenticated, authLoading, fetchConversations]);
 
   useEffect(() => {
-    if (currentChat) fetchMessages(currentChat._id);
+    if (currentChat) {
+      fetchMessages(currentChat._id);
+    }
   }, [currentChat, fetchMessages]);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  // Placeholder functions for UI actions
-  const getAvatar = (name) => `https://ui-avatars.com/api/?name=${name}&background=random`;
-  const initiateCall = (type) => console.log(`Initiating ${type} call...`);
-  const handleFileUpload = () => console.log("Upload logic here...");
-  const startRecording = () => setIsRecording(true);
-  const stopRecording = () => setIsRecording(false);
-  const NeonSpinner = () => <div className="text-cyan-500 text-center py-10 animate-pulse">Scanning Grid...</div>;
-  const NeuralAudioPlayer = ({ url }) => <div className="p-2 bg-white/10 rounded">Audio Signal</div>;
-
   return (
     <div className={`fixed inset-0 text-white h-[100dvh] overflow-hidden transition-all duration-700 ${isIncognito ? 'bg-[#0a0010]' : 'bg-[#02040a]'}`}>
       
