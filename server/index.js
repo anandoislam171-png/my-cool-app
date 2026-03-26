@@ -7,7 +7,7 @@ import { Server } from "socket.io";
 import cors from "cors";
 import Redis from "ioredis";
 import { v2 as cloudinary } from 'cloudinary';
-import jwt from 'jsonwebtoken'; // Custom JWT এর জন্য
+import jwt from 'jsonwebtoken';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -39,7 +39,7 @@ const server = http.createServer(app);
 const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 redis.on("error", (err) => console.log("Redis Error: ", err));
 
-// --- ৩. কাস্টম JWT মিডলওয়্যার (Auth0 এর বিকল্প) ---
+// --- ৩. কাস্টম JWT মিডলওয়্যার (সংশোধিত) ---
 const protect = async (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
@@ -47,13 +47,14 @@ const protect = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.id).select("-password");
-      next();
+      return next(); // 'return' যোগ করা হয়েছে যাতে ফাংশন এখানেই শেষ হয়
     } catch (error) {
-      res.status(401).json({ error: "Neural Link Severed", message: "Invalid Token" });
+      return res.status(401).json({ error: "Neural Link Severed", message: "Invalid Token" });
     }
   }
+  
   if (!token) {
-    res.status(401).json({ error: "Access Denied", message: "No Token Provided" });
+    return res.status(401).json({ error: "Access Denied", message: "No Token Provided" });
   }
 };
 
@@ -92,21 +93,21 @@ app.use(passport.initialize());
 
 // Static Folder
 const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir));
 
 // --- ৬. রাউটস (Public & Protected) ---
 
-// পাবলিক রুট (লগইন লাগে না)
 app.get("/", (req, res) => res.send("🚀 OnyxDrift Neural Core Online!"));
+
+// Auth রাউটস
 app.use('/api/auth', authRoutes);
 
-// প্রোটেক্টড রুটস (Custom Protect Middleware ব্যবহার করা হয়েছে)
-app.use("/api/posts/neural-feed", protect, getNeuralFeed);
-app.use("/api/messages", protect, messageRoutes);
+// ফিড রাউট
+app.get("/api/feed", protect, getNeuralFeed); // রাউটটি ক্লিন করা হয়েছে
 
-// ইউজার প্রোফাইল রুট (Auth0 লজিক রিমুভ করে কাস্টম করা হয়েছে)
-app.get("/api/users/:username", protect, async (req, res) => {
+// ইউজার প্রোফাইল রুট
+app.get("/api/users/profile/:username", protect, async (req, res) => {
   try {
     const { username } = req.params;
     const user = await User.findOne({ 
@@ -126,7 +127,7 @@ app.get("/api/users/:username", protect, async (req, res) => {
   }
 });
 
-// বাকি সব মডিউল
+// অন্যান্য মডিউল
 app.use("/api/users", protect, userRoutes);
 app.use("/api/profile", protect, profileRoutes);
 app.use("/api/posts", protect, postRoutes);
@@ -135,10 +136,16 @@ app.use("/api/stories", protect, storyRoute);
 app.use("/api/groups", protect, groupRoutes);
 app.use("/api/market", protect, marketRoutes);
 app.use("/api/admin", protect, adminRoutes);
+app.use("/api/messages", protect, messageRoutes);
 
 // --- ৭. Socket.io ---
 const io = new Server(server, { 
   cors: { origin: allowedOrigins } 
+});
+
+io.on("connection", (socket) => {
+  console.log("A user connected to Neural Net:", socket.id);
+  socket.on("disconnect", () => console.log("User disconnected"));
 });
 
 // --- ৮. গ্লোবাল এরর হ্যান্ডলার ---
