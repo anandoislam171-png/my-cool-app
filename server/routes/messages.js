@@ -1,41 +1,41 @@
 import express from "express";
-const router = express.Router();
-import { auth } from "express-oauth2-jwt-bearer";
 import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-// Models (নিশ্চিত করুন আপনার এই মডেলগুলো সঠিক ফোল্ডারে আছে)
+// Models
 import Conversation from "../models/Conversation.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
 
-// ✅ Auth Middleware
-const checkJwt = auth({
-  audience: "https://onyx-drift-api",
-  issuerBaseURL: "https://my-cool-app-cvm7.onrender.com", // আপনার Auth0 ডোমেইন চেক করুন
-  tokenSigningAlg: "RS256",
-});
+// কাস্টম মিডলওয়্যার ইমপোর্ট (নিশ্চিত করুন এই ফাইলটি middleware ফোল্ডারে আছে)
+import { protect } from '../middleware/authMiddleware.js'; 
+
+dotenv.config();
+const router = express.Router();
 
 /* ==========================================================
     🔍 SEARCH USERS (নতুন চ্যাট শুরু করার জন্য)
 ========================================================== */
-router.get("/search-users/:query", checkJwt, async (req, res) => {
+router.get("/search-users/:query", protect, async (req, res) => {
   try {
     const { query } = req.params;
-    const currentUserId = req.auth?.payload?.sub;
+    const currentUserId = req.user._id; // protect মিডলওয়্যার থেকে পাওয়া
 
     if (!query || query.length < 2) {
       return res.status(400).json({ error: "Query too short" });
     }
 
+    // নিজের আইডি বাদে অন্যদের খোঁজা
     const users = await User.find({
-      auth0Id: { $ne: currentUserId },
+      _id: { $ne: currentUserId },
       $or: [
-        { name: { $regex: query, $options: "i" } },
-        { nickname: { $regex: query, $options: "i" } },
+        { firstName: { $regex: query, $options: "i" } },
+        { lastName: { $regex: query, $options: "i" } },
+        { username: { $regex: query, $options: "i" } },
       ],
     })
       .limit(8)
-      .select("name nickname avatar auth0Id")
+      .select("firstName lastName username avatar")
       .lean();
 
     res.json(users);
@@ -48,12 +48,11 @@ router.get("/search-users/:query", checkJwt, async (req, res) => {
 /* ==========================================================
     📥 GET CONVERSATIONS (ইউজারের সব চ্যাট লিস্ট)
 ========================================================== */
-router.get("/conversations", checkJwt, async (req, res) => {
+router.get("/conversations", protect, async (req, res) => {
   try {
-    const userId = req.auth?.payload?.sub;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = req.user._id.toString();
 
-    // ইউজারের মেম্বারশিপ অনুযায়ী কনভারসেশন খোঁজা
+    // ইউজারের মেম্বারশিপ অনুযায়ী কনভারসেশন খোঁজা
     const conversations = await Conversation.find({
       members: { $in: [userId] },
     })
@@ -64,8 +63,8 @@ router.get("/conversations", checkJwt, async (req, res) => {
     const result = await Promise.all(
       conversations.map(async (conv) => {
         const otherId = conv.members.find((m) => m !== userId);
-        const userDetails = await User.findOne({ auth0Id: otherId })
-          .select("name nickname avatar auth0Id")
+        const userDetails = await User.findById(otherId)
+          .select("firstName lastName username avatar")
           .lean();
 
         return { ...conv, userDetails };
@@ -82,10 +81,10 @@ router.get("/conversations", checkJwt, async (req, res) => {
 /* ==========================================================
     📤 SEND MESSAGE (মেসেজ এবং ইমেজ সেভ করা)
 ========================================================== */
-router.post("/message", checkJwt, async (req, res) => {
+router.post("/message", protect, async (req, res) => {
   try {
-    const senderId = req.auth?.payload?.sub;
-    const { conversationId, text, image } = req.body; // ফ্রন্টএন্ড থেকে image আসছে
+    const senderId = req.user._id.toString();
+    const { conversationId, text, image } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
       return res.status(400).json({ error: "Invalid Conversation ID" });
@@ -120,10 +119,10 @@ router.post("/message", checkJwt, async (req, res) => {
 /* ==========================================================
     📜 GET MESSAGES (নির্দিষ্ট চ্যাটের হিস্ট্রি)
 ========================================================== */
-router.get("/:conversationId", checkJwt, async (req, res) => {
+router.get("/history/:conversationId", protect, async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const userId = req.auth?.payload?.sub;
+    const userId = req.user._id.toString();
 
     if (!mongoose.Types.ObjectId.isValid(conversationId)) {
       return res.status(400).json({ error: "Invalid ID" });
@@ -136,12 +135,12 @@ router.get("/:conversationId", checkJwt, async (req, res) => {
     });
 
     if (!conversation) {
-      return res.status(403).json({ error: "Access denied" });
+      return res.status(403).json({ error: "Access denied to this Neural Link" });
     }
 
     const messages = await Message.find({ conversationId })
       .sort({ createdAt: 1 })
-      .limit(100) // ৫০ থেকে বাড়িয়ে ১০০ করা হলো
+      .limit(100)
       .lean();
 
     res.json(messages);

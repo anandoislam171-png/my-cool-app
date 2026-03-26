@@ -4,18 +4,13 @@ import { v2 as cloudinary } from "cloudinary";
 import { CloudinaryStorage } from "multer-storage-cloudinary";
 import Post from "../models/Post.js"; 
 import User from "../models/User.js";
-import { auth } from 'express-oauth2-jwt-bearer';
+import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Auth0 Middleware
-const checkJwt = auth({
-  audience: process.env.AUTH0_AUDIENCE || 'https://onyx-drift-api.com',
-  issuerBaseURL: `https://dev-6d0nxccsaycctfl1.us.auth0.com/`,
-  tokenSigningAlg: 'RS256'
-});
-
-// ক্লাউডিনারি স্টোরেজ
+/* ==========================================================
+    ☁️ Cloudinary Storage Configuration
+========================================================== */
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -28,11 +23,11 @@ const storage = new CloudinaryStorage({
 const upload = multer({ storage: storage });
 
 /* ==========================================================
-    📺 GET ALL REELS - ফিক্সড এরর হ্যান্ডলিং
+    📺 GET ALL REELS (Optimized for Speed)
 ========================================================== */
 router.get("/all", async (req, res) => {
   try {
-    // ফ্রন্টএন্ডে অনেক সময় ফিল্টার ঠিকমতো না থাকলে 400 আসে, তাই এখানে ডিফল্ট কোয়েরি রাখা হয়েছে
+    // Reels বা Video টাইপের পোস্টগুলো খোঁজা
     const reels = await Post.find({ 
         $or: [
           { postType: "reels" },
@@ -40,17 +35,18 @@ router.get("/all", async (req, res) => {
         ] 
     })
     .sort({ createdAt: -1 })
-    .limit(20) // লোডিং স্পিড বাড়ানোর জন্য
+    .limit(20) 
     .lean();
     
-    // ডাটা না থাকলে এম্পটি অ্যারে পাঠানো (যাতে ফ্রন্টএন্ড ক্রাশ না করে)
-    if (!reels) return res.status(200).json([]);
+    if (!reels || reels.length === 0) return res.status(200).json([]);
 
+    // ডাটা সেফটি চেক (যাতে ফ্রন্টএন্ডে ম্যাপ করার সময় এরর না আসে)
     const safeReels = reels.map(reel => ({
         ...reel,
         likes: Array.isArray(reel.likes) ? reel.likes : [],
         comments: Array.isArray(reel.comments) ? reel.comments : [],
-        authorName: reel.authorName || "Unknown Drifter"
+        authorName: reel.authorName || "Unknown Drifter",
+        authorAvatar: reel.authorAvatar || `https://ui-avatars.com/api/?name=${reel.authorName || 'D'}&background=random`
     }));
 
     res.status(200).json(safeReels);
@@ -61,32 +57,34 @@ router.get("/all", async (req, res) => {
 });
 
 /* ==========================================================
-    🚀 REEL UPLOAD - ফিক্সড
+    🚀 REEL UPLOAD (Secured with Custom Auth)
 ========================================================== */
-router.post("/upload", checkJwt, upload.single("video"), async (req, res) => {
+router.post("/upload", protect, upload.single("video"), async (req, res) => {
   try {
-    const myId = req.auth?.payload?.sub;
-    if (!req.file) return res.status(400).json({ error: "ভিডিও ফাইল পাওয়া যায়নি।" });
-
-    const userProfile = await User.findOne({ auth0Id: myId });
+    const user = req.user; // protect middleware থেকে সরাসরি ইউজার অবজেক্ট
+    
+    if (!req.file) {
+      return res.status(400).json({ error: "Neural Core Data (Video) not found." });
+    }
 
     const newReel = new Post({
-      author: myId,
-      authorAuth0Id: myId,
-      authorName: userProfile?.name || "Drifter",
-      authorAvatar: userProfile?.avatar || "",
+      authorId: user._id, // Auth0 sub এর বদলে মঙ্গোডিবি ID
+      authorName: `${user.firstName} ${user.lastName}`,
+      authorAvatar: user.avatar || "",
       text: req.body.caption || "",
-      media: req.file.path,
+      media: req.file.path, // ক্লাউডিনারি ভিডিও ইউআরএল
       mediaType: "video",
       postType: "reels",
       likes: [],
-      comments: []
+      comments: [],
+      createdAt: new Date()
     });
 
     await newReel.save();
     res.status(201).json(newReel);
   } catch (err) {
-    res.status(400).json({ error: "Upload failed", details: err.message });
+    console.error("Upload Error:", err);
+    res.status(400).json({ error: "Neural Sync Failed", details: err.message });
   }
 });
 
