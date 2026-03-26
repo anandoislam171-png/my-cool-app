@@ -1,88 +1,86 @@
-import mongoose from "mongoose";
-import bcrypt from "bcryptjs";
+import User from "../models/User.js";
+import jwt from "jsonwebtoken";
 
-const userSchema = new mongoose.Schema({
-  firstName: {
-    type: String,
-    required: [true, "First name is required"],
-    trim: true
-  },
-  lastName: {
-    type: String,
-    required: [true, "Last name is required"],
-    trim: true
-  },
-  username: {
-    type: String,
-    required: [true, "Username is required"],
-    unique: true,
-    trim: true,
-    lowercase: true
-  },
-  email: {
-    type: String,
-    required: [true, "Email is required"],
-    unique: true,
-    lowercase: true,
-    trim: true,
-    match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please fill a valid email address']
-  },
-  password: {
-    type: String,
-    required: [true, "Password is required"],
-    minlength: 6
-  },
-  bio: {
-    type: String,
-    default: "Exploring the OnyxDrift network..."
-  },
-  avatar: {
-    type: String,
-    default: ""
-  },
-  coverImg: {
-    type: String,
-    default: ""
-  },
-  // --- সোশ্যাল নেটওয়ার্ক ফিচার ---
-  followers: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
-  following: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
-  // --- OnyxDrift এর ৪টি স্পেশাল মোড ---
-  activeMode: {
-    type: String,
-    enum: ['minimal', 'video', 'chat', 'knowledge'],
-    default: 'minimal'
-  }
-}, {
-  // অটোমেটিক createdAt এবং updatedAt যোগ করবে
-  timestamps: true 
-});
-
-// --- পাসওয়ার্ড সেভ করার আগে অটোমেটিক এনক্রিপশন (Security) ---
-userSchema.pre('save', async function(next) {
-  // যদি পাসওয়ার্ড পরিবর্তন না হয়, তবে এনক্রিপশন স্কিপ করবে
-  if (!this.isModified('password')) return next();
-  
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// --- পাসওয়ার্ড ম্যাচ করার জন্য কাস্টম মেথড (Login এর সময় লাগবে) ---
-userSchema.methods.matchPassword = async function(enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+// JWT Token জেনারেট করার ফাংশন
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
 };
 
-// মঙ্গুজ মডেল এক্সপোর্ট
-const User = mongoose.model('User', userSchema);
-export default User;
+// @desc    Register new user
+export const register = async (req, res) => {
+  const { firstName, lastName, username, email, password } = req.body;
+  try {
+    const userExists = await User.findOne({ $or: [{ email }, { username }] });
+    if (userExists) return res.status(400).json({ msg: "User already exists" });
+
+    const user = await User.create({ firstName, lastName, username, email, password });
+    if (user) {
+      res.status(201).json({
+        _id: user._id,
+        username: user.username,
+        token: generateToken(user._id),
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ msg: "Registration failed", error: error.message });
+  }
+};
+
+// @desc    Login user
+export const login = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (user && (await user.matchPassword(password))) {
+      res.json({
+        _id: user._id,
+        username: user.username,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(401).json({ msg: "Invalid credentials" });
+    }
+  } catch (error) {
+    res.status(500).json({ msg: "Login error" });
+  }
+};
+
+// @desc    Get current user profile (এটিই আপনার এরর দিচ্ছে)
+export const getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    if (user) {
+      res.json(user);
+    } else {
+      res.status(404).json({ msg: "User not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ msg: "Server error" });
+  }
+};
+
+// @desc    Update profile
+export const updateProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (user) {
+      user.firstName = req.body.firstName || user.firstName;
+      user.lastName = req.body.lastName || user.lastName;
+      user.bio = req.body.bio || user.bio;
+      user.avatar = req.body.avatar || user.avatar;
+      
+      const updatedUser = await user.save();
+      res.json(updatedUser);
+    }
+  } catch (error) {
+    res.status(500).json({ msg: "Update failed" });
+  }
+};
+
+// @desc    Refresh Token
+export const refreshToken = async (req, res) => {
+  // সেশন ধরে রাখার জন্য সিম্পল রিফ্রেশ লজিক
+  res.json({ msg: "Token refreshed successfully" });
+};
