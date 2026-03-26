@@ -12,6 +12,13 @@ const userSchema = new mongoose.Schema({
     required: [true, "Last name is required"],
     trim: true
   },
+  username: {
+    type: String,
+    required: [true, "Username is required"],
+    unique: true,
+    trim: true,
+    lowercase: true
+  },
   email: {
     type: String,
     required: [true, "Email is required"],
@@ -25,23 +32,41 @@ const userSchema = new mongoose.Schema({
     required: [true, "Password is required"],
     minlength: 6
   },
-  // OnyxDrift এর ৪টি স্পেশাল মোড
-  activeMode: {
+  bio: {
     type: String,
-    enum: ['minimal', 'video', 'chat', 'knowledge'],
-    default: 'minimal'
+    default: "Exploring the OnyxDrift network..."
   },
   avatar: {
     type: String,
     default: ""
+  },
+  coverImg: {
+    type: String,
+    default: ""
+  },
+  // --- সোশ্যাল নেটওয়ার্ক ফিচার ---
+  followers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  following: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  // --- OnyxDrift এর ৪টি স্পেশাল মোড ---
+  activeMode: {
+    type: String,
+    enum: ['minimal', 'video', 'chat', 'knowledge'],
+    default: 'minimal'
   }
 }, {
-  // এটি অটোমেটিক createdAt এবং updatedAt (ID এর সাথে সময়) যোগ করবে
+  // অটোমেটিক createdAt এবং updatedAt যোগ করবে
   timestamps: true 
 });
 
-// --- পাসওয়ার্ড সেভ করার আগে অটোমেটিক এনক্রিপশন (Security) ---
+// --- পাসওয়ার্ড সেভ করার আগে অটোমেটিক এনক্রিপশন (Security) ---
 userSchema.pre('save', async function(next) {
+  // যদি পাসওয়ার্ড পরিবর্তন না হয়, তবে এনক্রিপশন স্কিপ করবে
   if (!this.isModified('password')) return next();
   
   try {
@@ -53,11 +78,11 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// --- পাসওয়ার্ড ম্যাচ করার জন্য কাস্টম মেথড ---
+// --- পাসওয়ার্ড ম্যাচ করার জন্য কাস্টম মেথড (Login এর সময় লাগবে) ---
 userSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// মঙ্গুজ মডেল এক্সপোর্ট (ES Module Format)
+// মঙ্গুজ মডেল এক্সপোর্ট
 const User = mongoose.model('User', userSchema);
 export default User;
