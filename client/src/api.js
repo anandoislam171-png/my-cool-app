@@ -1,29 +1,72 @@
 import axios from 'axios';
 
-// পরিবর্তন: লোকালহোস্ট বদলে আপনার রেন্ডার সার্ভার লিঙ্ক দেওয়া হয়েছে
-const BASE_URL = "https://onyx-drift-app-final.onrender.com/api"; 
-
+// ১. এক্সিওস ইনস্ট্যান্স তৈরি
 const api = axios.create({
-    baseURL: BASE_URL,
+  // প্রোডাকশনে আপনার রেন্ডার ইউআরএল ব্যবহার করুন
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-// ১. পোস্ট করার জন্য (Point 7: Media Support)
-export const createPost = (formData) => api.post('/posts', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-});
+// ২. রিকোয়েস্ট ইন্টারসেপ্টর: প্রতিটি রিকোয়েস্টে টোকেন যোগ করা
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      // Neural Authorization Header
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
 
-// ২. টাইমলাইন দেখার জন্য (Point 8: Feed System)
-export const getTimeline = (username) => api.get(`/posts/timeline?username=${username}`);
+// ৩. রেসপন্স ইন্টারসেপ্টর: টোকেন এক্সপায়ার হলে অটো-রিফ্রেশ করা
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
 
-// ৩. ট্রেন্ডিং ট্যাগ দেখার জন্য (Point 3: Trends)
-export const getTrending = () => api.get('/posts/trending');
+    // যদি ৪০১ (Unauthorized) এরর আসে এবং আগে ট্রাই করা না হয়ে থাকে
+    if (error.response && error.response.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
 
-// ৪. ফলো করার জন্য
-export const followUser = (followingUser, currentUser) => 
-    api.post(`/follow/${followingUser}?currentUser=${currentUser}`);
+      try {
+        const refreshToken = localStorage.getItem('refreshToken');
+        
+        if (!refreshToken) {
+          // রিফ্রেশ টোকেন না থাকলে সরাসরি লগআউট
+          throw new Error("No refresh token available");
+        }
 
-// ৫. লগইন ও রেজিস্ট্রেশন (Point 9: Auth)
-export const login = (data) => api.post('/auth/login', data);
-export const signup = (data) => api.post('/auth/signup', data);
+        // নতুন এক্সেস টোকেন নেওয়ার জন্য রিকোয়েস্ট (সরাসরি axios ব্যবহার করা হয়েছে লুপ এড়াতে)
+        const response = await axios.post(`${api.defaults.baseURL}/auth/refresh`, {
+          refreshToken,
+        });
+
+        const { accessToken } = response.data;
+
+        // নতুন টোকেন সেভ করা
+        localStorage.setItem('accessToken', accessToken);
+
+        // অরিজিনাল রিকোয়েস্টের হেডার আপডেট করে আবার পাঠানো
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        // যদি রিফ্রেশ টোকেনও কাজ না করে, তবে সেশন ক্লিয়ার করে লগইন পেজে পাঠান
+        console.error("Neural Link Broken: Session Expired");
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export default api;

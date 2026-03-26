@@ -1,87 +1,66 @@
 import express from 'express';
-import User from '../models/User.js';
-import bcrypt from 'bcryptjs';
+import passport from 'passport';
 import jwt from 'jsonwebtoken';
+import { 
+  register, 
+  login, 
+  refreshToken, 
+  getMe, 
+  updateProfile 
+} from '../controllers/authController.js';
+import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// নিশ্চিত করুন .env ফাইলে JWT_SECRET সেট করা আছে
-const SECRET = process.env.JWT_SECRET || 'your_secret_key_onyxdrift';
+// --- ১. স্ট্যান্ডার্ড অথেন্টিকেশন রাউটস (Email/Password) ---
 
-// --- লগইন রাউট ---
-router.post('/login', async (req, res) => {
+// নতুন ইউজার রেজিস্ট্রেশন
+router.post('/register', register);
+
+// ইউজার লগইন
+router.post('/login', login);
+
+// টোকেন রিফ্রেশ (সেশন দীর্ঘস্থায়ী করার জন্য)
+router.post('/refresh', refreshToken);
+
+// নিজের প্রোফাইল ডাটা দেখা (Protected)
+router.get('/me', protect, getMe);
+
+// প্রোফাইল আপডেট করা (Protected)
+router.put('/profile', protect, updateProfile);
+
+
+// --- ২. গুগল OAuth2 রাউটস (Social Login) ---
+
+// গুগলের সাইন-ইন পেজে নিয়ে যাবে
+router.get('/google', passport.authenticate('google', { 
+  scope: ['profile', 'email'] 
+}));
+
+// গুগল থেকে ফিরে আসার পর এই রাউট কাজ করবে
+router.get('/google/callback', 
+  passport.authenticate('google', { session: false, failureRedirect: '/login' }),
+  (req, res) => {
     try {
-        const { username, password } = req.body;
-        
-        // পাসওয়ার্ডসহ ইউজার খুঁজে বের করা
-        const user = await User.findOne({ username }).select('+password');
+      // গুগল থেকে আসা ইউজারের জন্য নতুন JWT টোকেন তৈরি
+      const token = jwt.sign(
+        { id: req.user._id }, 
+        process.env.JWT_SECRET, 
+        { expiresIn: '30d' }
+      );
 
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
+      // টোকেনটি নিয়ে ফ্রন্টএন্ডে রিডাইরেক্ট (Vercel URL অনুযায়ী পরিবর্তন করুন)
+      // আমরা কুয়েরি প্যারামিটার হিসেবে টোকেন পাঠাচ্ছি যাতে ফ্রন্টএন্ড সেটি ধরতে পারে
+      const frontendURL = process.env.NODE_ENV === 'production' 
+        ? "https://onyx-drift-app-final.vercel.app" 
+        : "http://localhost:5173";
 
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ message: "Invalid credentials" });
-        }
-
-        // টোকেন জেনারেশন
-        const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: '7d' });
-
-        // স্পষ্টভাবে রেসপন্স পাঠানো
-        return res.status(200).json({ 
-            token: token, 
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                username: user.username 
-            } 
-        });
+      res.redirect(`${frontendURL}/login?token=${token}`);
     } catch (error) {
-        console.error("Login Error:", error);
-        return res.status(500).json({ message: "Server error", error: error.message });
+      console.error("Google Auth Redirect Error:", error);
+      res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
     }
-});
-
-// --- রেজিস্ট্রেশন রাউট ---
-router.post('/register', async (req, res) => {
-    try {
-        const { name, email, username, password } = req.body;
-
-        if (!name || !email || !username || !password) {
-            return res.status(400).json({ message: "All fields are required" });
-        }
-
-        const userExists = await User.findOne({ $or: [{ email }, { username }] });
-        if (userExists) {
-            return res.status(400).json({ message: "User already exists" });
-        }
-
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
-
-        const user = await User.create({ 
-            name, 
-            email, 
-            username, 
-            password: hashedPassword 
-        });
-
-        const token = jwt.sign({ id: user._id }, SECRET, { expiresIn: '7d' });
-
-        return res.status(201).json({ 
-            message: "Success", 
-            token: token, 
-            user: { 
-                id: user._id, 
-                name: user.name, 
-                username: user.username 
-            } 
-        });
-    } catch (error) {
-        console.error("Registration Error:", error);
-        return res.status(500).json({ message: "Registration failed", error: error.message });
-    }
-});
+  }
+);
 
 export default router;

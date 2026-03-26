@@ -1,73 +1,55 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { Strategy as FacebookStrategy } from 'passport-facebook';
 import User from '../models/User.js';
+import dotenv from 'dotenv';
 
-// User Serialization
+dotenv.config();
+
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: "/api/auth/google/callback", // এটি আপনার ব্যাকএন্ডের ইউআরএল অনুযায়ী হবে
+      proxy: true, // Render/Vercel এ ডেপ্লয় করলে এটি মাস্ট লাগবে
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        // ১. চেক করো ইউজার অলরেডি ডাটাবেজে আছে কি না (ইমেইল দিয়ে)
+        let user = await User.findOne({ email: profile.emails[0].value });
+
+        if (user) {
+          // ইউজার থাকলে তাকে রিটার্ন করো
+          return done(null, user);
+        } else {
+          // ২. ইউজার না থাকলে নতুন ইউজার তৈরি করো
+          const newUser = await User.create({
+            firstName: profile.name.givenName,
+            lastName: profile.name.familyName,
+            email: profile.emails[0].value,
+            username: profile.emails[0].value.split('@')[0], // ইমেইলের প্রথম অংশ ইউজারনেম হিসেবে
+            avatar: profile.photos[0].value,
+            password: 'google-auth-no-password', // গুগল লগইনে পাসওয়ার্ড লাগে না, তবে মডেল রিকোয়ার্ড হলে একটি ডামি দিন
+            activeMode: 'minimal',
+          });
+          return done(null, newUser);
+        }
+      } catch (err) {
+        console.error("❌ Google Auth Strategy Error:", err);
+        return done(err, null);
+      }
+    }
+  )
+);
+
+// সেশন হ্যান্ডলিং (যদিও আমরা JWT ব্যবহার করছি, পাসপোর্ট মডিউলের জন্য এগুলো প্রয়োজন হতে পারে)
 passport.serializeUser((user, done) => {
-    done(null, user.id);
+  done(null, user.id);
 });
 
 passport.deserializeUser(async (id, done) => {
-    try {
-        const user = await User.findById(id);
-        done(null, user);
-    } catch (err) {
-        done(err, null);
-    }
+  const user = await User.findById(id);
+  done(null, user);
 });
-
-// --- Google Strategy ---
-// ১০০ মিলিয়ন ইউজারের স্কেলেবিলিটির জন্য প্রক্সি সাপোর্ট অ্যাড করা হয়েছে
-if (process.env.GOOGLE_CLIENT_ID) {
-    passport.use(new GoogleStrategy({
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: "/api/auth/google/callback",
-        proxy: true // Render বা Cloud-এ থাকলে এটি জরুরি
-    }, async (accessToken, refreshToken, profile, done) => {
-        try {
-            let user = await User.findOne({ googleId: profile.id });
-            if (!user) {
-                user = await User.create({
-                    googleId: profile.id,
-                    name: profile.displayName,
-                    email: profile.emails[0].value,
-                    profilePic: profile.photos[0].value,
-                    isVerified: true // OAuth ইউজাররা সাধারণত ভেরিফাইড হয়
-                });
-            }
-            return done(null, user);
-        } catch (err) {
-            return done(err, null);
-        }
-    }));
-}
-
-// --- Facebook Strategy ---
-if (process.env.FACEBOOK_APP_ID) {
-    passport.use(new FacebookStrategy({
-        clientID: process.env.FACEBOOK_APP_ID,
-        clientSecret: process.env.FACEBOOK_APP_SECRET,
-        callbackURL: "/api/auth/facebook/callback",
-        profileFields: ['id', 'displayName', 'photos', 'email'],
-        proxy: true
-    }, async (accessToken, refreshToken, profile, done) => {
-        try {
-            let user = await User.findOne({ facebookId: profile.id });
-            if (!user) {
-                user = await User.create({
-                    facebookId: profile.id,
-                    name: profile.displayName,
-                    email: profile.emails?.[0]?.value || `${profile.id}@facebook.com`,
-                    profilePic: profile.photos?.[0]?.value || ""
-                });
-            }
-            return done(null, user);
-        } catch (err) {
-            return done(err, null);
-        }
-    }));
-}
 
 export default passport;

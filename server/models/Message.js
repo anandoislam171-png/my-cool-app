@@ -40,14 +40,14 @@ const MessageSchema = new mongoose.Schema(
       sparse: true  
     },
 
-    // ৪. কন্টেন্ট এবং মিডিয়াম
+    // ৪. কন্টেন্ট এবং মিডিয়াম (Cloudinary ইমেজ বা টেক্সট)
     text: {
       type: String,
       trim: true,
       default: ""
     },
     media: {
-      type: String, 
+      type: String, // আপনার Cloudinary image URL এখানে সেভ হবে
       default: ""
     },
     mediaType: {
@@ -63,7 +63,7 @@ const MessageSchema = new mongoose.Schema(
       default: "Neural-Flow"
     },
 
-    // 🚀 ফিচার ২: THE TIME CAPSULE
+    // 🚀 ফিচার ২: THE TIME CAPSULE (মেসেজ পরে ডেলিভারি হবে)
     isTimeCapsule: {
       type: Boolean,
       default: false
@@ -104,7 +104,7 @@ const MessageSchema = new mongoose.Schema(
     expireAt: {
       type: Date,
       default: null,
-      index: true // TTL ইনডেক্সের জন্য জরুরি
+      index: true 
     }
   },
   { 
@@ -115,30 +115,33 @@ const MessageSchema = new mongoose.Schema(
 );
 
 /* ==========================================================
-    📡 PERFORMANCE & QUANTUM OPTIMIZATION
+    📡 PERFORMANCE & OPTIMIZATION
 ========================================================== */
 
-// ১. TTL ইনডেক্স: এটি ডাটাবেস থেকে অটোমেটিক মেসেজ ডিলিট করবে
-// expireAfterSeconds: 0 মানে হলো expireAt এ যে সময় দেওয়া আছে ঠিক সেই মুহূর্তেই ডিলিট হবে।
+// ১. TTL Index (অটোমেটিক ডিলিট লজিক)
 MessageSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 
-// ২. কম্পাউন্ড ইনডেক্স: চ্যাট লোডিং স্পিড বাড়ানোর জন্য
+// ২. চ্যাট লোডিং স্পিড বাড়ানোর জন্য ইনডেক্স
 MessageSchema.index({ conversationId: 1, createdAt: -1 });
 
-// ৩. ভার্চুয়াল ফিল্ড: চ্যাট লকিং চেক
+// ৩. ভার্চুয়াল ফিল্ড: চেক করবে মেসেজটি কি বর্তমানে লক করা (Time Capsule এর জন্য)
 MessageSchema.virtual('isLocked').get(function() {
-  if (!this.deliverAt) return false;
-  return new Date() < this.deliverAt;
+  return this.deliverAt && new Date() < this.deliverAt;
 });
 
-// ৪. প্রি-সেভ হুক: লজিক ভ্যালিডেশন
+// ৪. প্রি-সেভ হুক (Pre-save Hook)
 MessageSchema.pre('save', function(next) {
-  // যদি self-destruct অন থাকে কিন্তু expireAt না থাকে, তবে ডিফল্ট ৩০ সেকেন্ড সেট হবে
+  // যদি self-destruct অন থাকে কিন্তু expireAt দেওয়া না থাকে, তবে ৩০ সেকেন্ড ডিফল্ট
   if (this.isSelfDestruct && !this.expireAt) {
     this.expireAt = new Date(Date.now() + 30 * 1000); 
   }
 
-  // যদি deliverAt বর্তমান সময়ের পরের হয়, তবে অটোমেটিক টাইম ক্যাপসুল ট্রু হবে
+  // মিডিয়া টাইপ অটো-ডিটেকশন লজিক (যদি ফ্রন্টএন্ড থেকে না আসে)
+  if (this.media && this.mediaType === "text") {
+    this.mediaType = "image";
+  }
+
+  // টাইম ক্যাপসুল ভ্যালিডেশন
   if (this.deliverAt && this.deliverAt > new Date()) {
     this.isTimeCapsule = true;
   }

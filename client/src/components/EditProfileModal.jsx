@@ -1,78 +1,108 @@
-import React, { useState } from "react";
-import { FaTimes, FaCamera } from "react-icons/fa";
+import React, { useState } from 'react';
+import { X, Camera } from 'lucide-react';
+import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
-const EditProfileModal = ({ isOpen, onClose, currentProfile, onSave, saving }) => {
-  const [formData, setFormData] = useState({ ...currentProfile });
+const EditProfileModal = ({ isOpen, onClose, onUpdate }) => {
+  const { user, setUser } = useAuth();
+  const [formData, setFormData] = useState({
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    bio: user?.bio || '',
+    location: user?.location || 'Global Node',
+    website: user?.website || 'onyx-drift.com'
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      const res = await api.put('/auth/profile', formData);
+      setUser(res.data.user); // AuthContext আপডেট করা
+      onUpdate(); // প্রোফাইল পেজ রিফ্রেশ করা
+      onClose();
+    } catch (err) {
+      console.error("IDENTITY_SYNC_FAILED", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-[100] bg-white/10 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-black w-full max-w-[600px] h-full md:h-auto md:max-h-[90vh] rounded-[2rem] border border-white/10 overflow-hidden flex flex-col">
         
-        {/* Modal Header */}
-        <div className="flex justify-between items-center p-6 border-b dark:border-gray-700">
-          <h2 className="text-xl font-bold dark:text-white">Edit Profile</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition">
-            <FaTimes className="text-gray-500" />
+        {/* Header */}
+        <div className="p-4 flex items-center justify-between sticky top-0 bg-black/80 backdrop-blur-md">
+          <div className="flex items-center gap-6">
+            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-all">
+              <X size={20} />
+            </button>
+            <h2 className="text-lg font-black uppercase tracking-tighter italic">Edit Profile</h2>
+          </div>
+          <button 
+            onClick={handleSubmit}
+            disabled={loading}
+            className="bg-white text-black px-5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest hover:bg-gray-200 transition-all disabled:opacity-50"
+          >
+            {loading ? 'Saving...' : 'Save'}
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 space-y-4">
-          {/* Avatar Preview */}
-          <div className="flex flex-col items-center mb-4">
-            <div className="relative group">
-              <img 
-                src={formData.avatar || "https://via.placeholder.com/100"} 
-                className="w-24 h-24 rounded-full object-cover border-4 border-blue-500"
-                alt="Preview"
-              />
-              <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition">
-                <FaCamera className="text-white text-xl" />
-                <input type="file" className="hidden" accept="image/*" />
-              </label>
+        {/* Form Body */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {/* Banner Edit Placeholder */}
+          <div className="h-32 bg-gray-900 relative flex items-center justify-center border-b border-white/5">
+             <div className="p-3 bg-black/40 rounded-full cursor-pointer hover:bg-black/60 transition-all text-white">
+                <Camera size={20} />
+             </div>
+          </div>
+
+          {/* Profile Pic Edit Placeholder */}
+          <div className="px-4 -mt-12 relative inline-block">
+             <div className="w-24 h-24 rounded-full bg-black p-1">
+                <div className="w-full h-full rounded-full bg-white/10 flex items-center justify-center border-4 border-black relative">
+                   <div className="p-2 bg-black/40 rounded-full cursor-pointer hover:bg-black/60 transition-all text-white">
+                      <Camera size={16} />
+                   </div>
+                </div>
+             </div>
+          </div>
+
+          {/* Input Fields (X-Style Floating Labels) */}
+          <div className="p-6 space-y-6">
+            <div className="relative group border border-white/10 rounded-xl p-3 focus-within:border-white transition-all">
+               <label className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-500 group-focus-within:text-white">First Name</label>
+               <input 
+                 type="text" 
+                 className="w-full bg-transparent border-none focus:ring-0 text-white p-0 text-sm mt-1"
+                 value={formData.firstName}
+                 onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+               />
             </div>
-            <p className="text-xs text-gray-500 mt-2">Click to change photo</p>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Name</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              className="w-full p-3 bg-gray-50 dark:bg-gray-700 border dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
-            />
-          </div>
+            <div className="relative group border border-white/10 rounded-xl p-3 focus-within:border-white transition-all">
+               <label className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-500 group-focus-within:text-white">Last Name</label>
+               <input 
+                 type="text" 
+                 className="w-full bg-transparent border-none focus:ring-0 text-white p-0 text-sm mt-1"
+                 value={formData.lastName}
+                 onChange={(e) => setFormData({...formData, lastName: e.target.value})}
+               />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bio</label>
-            <textarea
-              rows="3"
-              value={formData.bio}
-              onChange={(e) => setFormData({...formData, bio: e.target.value})}
-              className="w-full p-3 bg-gray-50 dark:bg-gray-700 border dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-white resize-none"
-              placeholder="Tell us about yourself..."
-            />
+            <div className="relative group border border-white/10 rounded-xl p-3 focus-within:border-white transition-all">
+               <label className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-500 group-focus-within:text-white">Bio</label>
+               <textarea 
+                 className="w-full bg-transparent border-none focus:ring-0 text-white p-0 text-sm mt-1 resize-none"
+                 rows={3}
+                 value={formData.bio}
+                 onChange={(e) => setFormData({...formData, bio: e.target.value})}
+               />
+            </div>
           </div>
-        </div>
-
-        {/* Modal Footer */}
-        <div className="p-6 border-t dark:border-gray-700 flex gap-3">
-          <button 
-            onClick={onClose}
-            className="flex-1 py-3 border dark:border-gray-600 rounded-xl font-bold dark:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={() => onSave(formData)}
-            disabled={saving}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition disabled:bg-blue-300"
-          >
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
         </div>
       </div>
     </div>

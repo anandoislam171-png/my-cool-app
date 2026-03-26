@@ -1,85 +1,53 @@
-import Post from "../models/Post.js";
-import User from "../models/User.js";
+const Post = require('../models/Post');
+const User = require('../models/User');
 
-export const getNeuralFeed = async (req, res) => {
+exports.getNeuralFeed = async (req, res) => {
   try {
-    // ১. ইউজার ডিটেকশন
-    const auth0Id = req.auth?.payload?.sub || req.user?.sub || req.user?.id;
+    // ১. OAuth2 মিডলওয়্যার (protect) থেকে ইউজার ডাটা নেওয়া
+    const userId = req.user.id;
+    const user = await User.findById(userId);
 
-    if (!auth0Id) {
-      return res.status(401).json({ msg: "Neural Identity missing. Please login." });
+    if (!user) {
+      return res.status(404).json({ message: "NEURAL_IDENTITY_NOT_FOUND" });
     }
 
-    const user = await User.findOne({ auth0Id }).lean();
-    
-    // ডিফল্ট ভ্যালু
-    const followingList = user?.following && Array.isArray(user.following) ? user.following : [];
-    const currentMood = user?.moodHistory?.length > 0 
-      ? user.moodHistory[user.moodHistory.length - 1]?.mood 
-      : "neutral";
-    const topSkill = user?.detectedSkills?.length > 0 
-      ? user.detectedSkills[0]?.name 
-      : "";
+    const page = parseInt(req.query.page) || 1;
+    const limit = 10;
+    const skip = (page - 1) * limit;
 
-    // ২. 🧠 স্মার্ট কুয়েরি লজিক (AI + User Posts)
-    // এখানে কোনো ফিল্টার রাখা হয়নি, ডাটাবেসের সব পোস্ট আসবে।
-    // ফলো করা ইউজারদের পোস্ট বা নিজের পোস্টগুলো সবার আগে দেখানোর জন্য রেটিং লজিক কাজ করবে।
-    let feedPosts = await Post.find({})
-      .sort({ createdAt: -1 }) // সর্বশেষ পোস্ট আগে আসবে
-      .limit(100)
-      .lean();
+    // ২. মোড অনুযায়ী কন্ডিশন সেট করা
+    let query = {};
+    const mode = user.activeMode;
 
-    if (!feedPosts || feedPosts.length === 0) {
-      return res.status(200).json([]);
+    if (mode === 'video') {
+      query.contentType = 'video';
+    } else if (mode === 'chat') {
+      query.isConversation = true;
+    } else if (mode === 'knowledge') {
+      query.category = { $in: ['tech', 'archive', 'science'] };
     }
+    // 'minimal' মোডে সব ধরণের কন্টেন্ট আসবে (Default)
 
-    // ৩. 📊 "Resonance Ranking" - এলগরিদম (সব পোস্টের ওপর রেটিং)
-    const scoredPosts = feedPosts.map(post => {
-      let resonanceScore = 0;
+    // ৩. ডাটাবেস থেকে পোস্ট রিট্রিভ করা
+    const posts = await Post.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('author', 'firstName lastName activeMode');
 
-      try {
-        // --- রেটিং নিয়মাবলি ---
+    const total = await Post.countDocuments(query);
 
-        // ক) AI পোস্ট বোনাস (+30)
-        if (post.isAiGenerated) {
-          resonanceScore += 30;
-        }
-
-        // খ) ফলোয়িং বা নিজের পোস্ট বোনাস (+40)
-        if (followingList.includes(post.authorAuth0Id) || post.authorAuth0Id === auth0Id) {
-          resonanceScore += 40;
-        }
-
-        // গ) মুড ম্যাচিং বোনাস (+50)
-        if (post.aiPersona && currentMood && 
-            typeof post.aiPersona === 'string' &&
-            post.aiPersona.toLowerCase().includes(currentMood.toLowerCase())) {
-          resonanceScore += 50;
-        }
-
-        // ঘ) এনগেজমেন্ট স্কোর (লাইক/ভিউ)
-        const likesCount = Array.isArray(post.likes) ? post.likes.length : 0;
-        const viewsCount = Number(post.views) || 0;
-        resonanceScore += (likesCount * 3) + (viewsCount * 0.5);
-
-      } catch (innerErr) {
-        console.error("Score Calc Error:", post._id, innerErr.message);
+    res.json({
+      status: "SYNC_COMPLETE",
+      mode_active: mode,
+      data: posts,
+      meta: {
+        total,
+        page,
+        hasMore: total > skip + posts.length
       }
-
-      return { ...post, resonanceScore };
     });
-
-    // ৪. Resonance Score অনুযায়ী শর্টিং (High to Low)
-    scoredPosts.sort((a, b) => (b.resonanceScore || 0) - (a.resonanceScore || 0));
-
-    // ৫. ফাইনাল রেসপন্স (সবচেয়ে প্রাসঙ্গিক ৫০টি পোস্ট)
-    res.status(200).json(scoredPosts.slice(0, 50));
-
-  } catch (err) {
-    console.error("❌ CRITICAL FEED ERROR:", err.stack);
-    res.status(500).json({ 
-      error: "Neural Grid Breakdown", 
-      message: err.message 
-    });
+  } catch (error) {
+    res.status(500).json({ message: "FEED_DESYNC_ERROR", error: error.message });
   }
 };
