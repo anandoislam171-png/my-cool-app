@@ -1,18 +1,15 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 
-// ১. API Configuration (Render Backend URL)
-// লোকালহোস্ট বাদ দিয়ে সরাসরি আপনার রেন্ডার ইউআরএল এখানে সেট করা হয়েছে
 const API_URL = "https://my-cool-app-cvm7.onrender.com/api";
 
-// Axios Instance তৈরি করা যাতে বারবার URL লিখতে না হয়
 const api = axios.create({
   baseURL: API_URL,
 });
 
-// ইন্টারসেপ্টর: প্রতি রিকোয়েস্টে অটোমেটিক টোকেন পাঠাবে
+// ইন্টারসেপ্টর: প্রতি রিকোয়েস্টে টোকেন পাঠানো
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
+  const token = localStorage.getItem('token'); // 'accessToken' থেকে 'token' এ পরিবর্তন
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -25,10 +22,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ২. সেশন পারসিস্টেন্স (Session Persistence)
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('token');
       
       if (!token) {
         setLoading(false);
@@ -36,9 +32,9 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        // টোকেন থাকলে সার্ভার থেকে ফ্রেশ ইউজার ডাটা নিয়ে আসবে
+        // টোকেন ভ্যালিড কি না চেক করা এবং ইউজার প্রোফাইল আনা
         const res = await api.get('/auth/me'); 
-        setUser(res.data);
+        setUser(res.data.user || res.data); // ব্যাকএন্ড স্ট্রাকচার অনুযায়ী
       } catch (err) {
         console.error("❌ Neural Session Expired:", err);
         handleLogoutData();
@@ -50,56 +46,55 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
-  // ৩. কাস্টম সাইনআপ (Signup)
+  // কাস্টম সাইনআপ
   const signup = async (formData) => {
     try {
       const res = await api.post('/auth/register', formData);
-      
-      if (res.data.accessToken) {
-        saveTokens(res.data.accessToken, res.data.refreshToken);
+      if (res.data.token) {
+        saveTokens(res.data.token);
         setUser(res.data.user);
       }
       return res.data;
     } catch (err) {
-      // এরর মেসেজ হ্যান্ডলিং
       throw err.response?.data?.message || "Registration Failed";
     }
   };
 
-  // ৪. কাস্টম লগইন (Login)
+  // কাস্টম লগইন
   const login = async (email, password) => {
     try {
       const res = await api.post('/auth/login', { email, password });
-      
-      saveTokens(res.data.accessToken, res.data.refreshToken);
-      setUser(res.data.user);
-      
+      if (res.data.token) {
+        saveTokens(res.data.token);
+        setUser(res.data.user);
+      }
       return res.data;
     } catch (err) {
       throw err.response?.data?.message || "Login Failed";
     }
   };
 
-  // ৫. সোশ্যাল লগইন (OAuth2) - Render ডোমেইন অনুযায়ী
+  // সরাসরি ডাটা সেভ করার জন্য (JoinPage-এর সুবিধার্থে)
+  const setAuthData = (userData, token) => {
+    saveTokens(token);
+    setUser(userData);
+  };
+
   const loginWithOAuth = (provider) => {
     window.location.href = `${API_URL}/auth/${provider}`;
   };
 
-  // ৬. লগআউট (Logout)
   const logout = () => {
     handleLogoutData();
-    window.location.href = '/login';
+    window.location.href = '/'; // ল্যান্ডিং পেজে পাঠিয়ে দেওয়া
   };
 
-  // --- হেল্পার ফাংশনস ---
-  const saveTokens = (access, refresh) => {
-    localStorage.setItem('accessToken', access);
-    if (refresh) localStorage.setItem('refreshToken', refresh);
+  const saveTokens = (token) => {
+    localStorage.setItem('token', token);
   };
 
   const handleLogoutData = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('token');
     setUser(null);
   };
 
@@ -109,6 +104,7 @@ export const AuthProvider = ({ children }) => {
     login,
     signup,
     logout,
+    setAuthData, // এটি JoinPage-এ ব্যবহার করবেন
     loginWithOAuth,
     isAuthenticated: !!user
   };
@@ -120,10 +116,4 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+export const useAuth = () => useContext(AuthContext);
