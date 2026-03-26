@@ -1,17 +1,32 @@
-// middleware/authMiddleware.js
-const jwt = require('jsonwebtoken');
+import jwt from 'jsonwebtoken';
+import User from '../models/User.js';
 
-const protect = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: "No Token, No Access" });
+export const protect = async (req, res, next) => {
+  let token;
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ message: "Token is not valid" });
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+    try {
+      // হেডার থেকে টোকেন আলাদা করা
+      token = req.headers.authorization.split(" ")[1];
+
+      // টোকেন ভেরিফাই করা
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // ডাটাবেজ থেকে ইউজারকে খুঁজে বের করে রিকোয়েস্টে সেট করা
+      req.user = await User.findById(decoded.id).select("-password");
+
+      if (!req.user) {
+        return res.status(401).json({ msg: "User not found in Neural Grid" });
+      }
+
+      next();
+    } catch (error) {
+      console.error("Auth Error:", error);
+      res.status(401).json({ msg: "Not authorized, token failed" });
+    }
+  }
+
+  if (!token) {
+    res.status(401).json({ msg: "Not authorized, no token" });
   }
 };
-
-module.exports = { protect };
