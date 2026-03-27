@@ -1,6 +1,6 @@
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
-import { OAuth2Client } from "google-auth-library"; // গুগল লাইব্রেরি ইমপোর্ট
+import { OAuth2Client } from "google-auth-library";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -15,9 +15,13 @@ const generateToken = (id) => {
     🌐 ১. গুগল লগইন লজিক (Social Sync)
 ========================================================== */
 export const googleLogin = async (req, res) => {
-  const { googleToken } = req.body; // ফ্রন্টএন্ড থেকে পাঠানো টোকেন
+  const { googleToken } = req.body;
 
   try {
+    if (!googleToken) {
+      return res.status(400).json({ msg: "No Google token provided" });
+    }
+
     // ১. গুগলের টোকেন ভেরিফাই করা
     const ticket = await client.verifyIdToken({
       idToken: googleToken,
@@ -31,13 +35,12 @@ export const googleLogin = async (req, res) => {
 
     if (!user) {
       // যদি নতুন ইউজার হয়, তবে ডাটাবেজে নতুন Identity তৈরি করা
-      // ইউজারনেম হিসেবে ইমেইলের প্রথম অংশ + র্যান্ডম নাম্বার ব্যবহার করা হয়েছে
       user = await User.create({
         firstName: given_name,
         lastName: family_name || "",
         email: email,
         username: email.split('@')[0] + Math.floor(Math.random() * 1000),
-        password: sub + process.env.JWT_SECRET, // গুগল ইউজারের জন্য র্যান্ডম পাসওয়ার্ড
+        password: sub + process.env.JWT_SECRET, 
         avatar: picture,
       });
       console.log("🆕 New User Created via Google:", user.username);
@@ -59,8 +62,8 @@ export const googleLogin = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("🔥 Google Auth Error In Terminal:", error.message);
-    res.status(500).json({ msg: "Google Auth Failed", error: error.message });
+    console.error("🔥 Google Auth Error:", error.message);
+    res.status(500).json({ msg: "Google Neural Link Failed", error: error.message });
   }
 };
 
@@ -71,11 +74,19 @@ export const googleLogin = async (req, res) => {
 // @desc    Register new user
 export const register = async (req, res) => {
   const { firstName, lastName, username, email, password } = req.body;
+  
   try {
+    // ডাটা ভ্যালিডেশন চেক
+    if (!firstName || !username || !email || !password) {
+      return res.status(400).json({ msg: "Please fill all required fields" });
+    }
+
+    // ইমেইল বা ইউজারনেম আগে থেকে আছে কি না চেক
     const userExists = await User.findOne({ $or: [{ email }, { username }] });
     if (userExists) {
-      console.log("⚠️ Registration Failed: User already exists");
-      return res.status(400).json({ msg: "User already exists" });
+      const field = userExists.email === email ? "Email" : "Username";
+      console.log(`⚠️ Registration Failed: ${field} already exists`);
+      return res.status(400).json({ msg: `${field} already taken` });
     }
 
     const user = await User.create({ firstName, lastName, username, email, password });
@@ -83,10 +94,9 @@ export const register = async (req, res) => {
     if (user) {
       console.log("✅ New User Registered:", username);
       res.status(201).json({
-        _id: user._id,
-        username: user.username,
         token: generateToken(user._id),
         user: {
+          _id: user._id,
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
@@ -95,22 +105,26 @@ export const register = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("🔥 Registration Error In Terminal:", error.message);
-    res.status(500).json({ msg: "Registration failed", error: error.message });
+    console.error("🔥 Registration Error:", error.message);
+    // ডাটাবেজ লেভেলের এরর ফ্রন্টএন্ডে পাঠানো (যেমন: ValidationError)
+    res.status(400).json({ msg: error.message });
   }
 };
 
 // @desc    Login user
 export const login = async (req, res) => {
   const { email, password } = req.body;
-  console.log("📩 Login attempt for:", email);
 
   try {
+    if (!email || !password) {
+      return res.status(400).json({ msg: "Please provide email and password" });
+    }
+
     const user = await User.findOne({ email });
     
     if (!user) {
       console.log("❌ Login Failed: User not found");
-      return res.status(401).json({ msg: "Invalid credentials" });
+      return res.status(401).json({ msg: "No user found with this email" });
     }
 
     const isMatch = await user.matchPassword(password);
@@ -118,22 +132,21 @@ export const login = async (req, res) => {
     if (isMatch) {
       console.log("✅ Login Successful:", user.username);
       res.json({
-        _id: user._id,
-        username: user.username,
         token: generateToken(user._id),
         user: {
-          firstName: user.firstName,
-          lastName: user.lastName,
+          _id: user._id,
+          username: user.username,
           email: user.email,
-          username: user.username
+          firstName: user.firstName,
+          lastName: user.lastName
         }
       });
     } else {
       console.log("🚫 Login Failed: Incorrect password");
-      res.status(401).json({ msg: "Invalid credentials" });
+      res.status(401).json({ msg: "Incorrect password" });
     }
   } catch (error) {
-    console.error("🔥 Login Error In Terminal:", error.message);
+    console.error("🔥 Login Error:", error.message);
     res.status(500).json({ msg: "Login error", error: error.message });
   }
 };
@@ -142,27 +155,18 @@ export const login = async (req, res) => {
     👤 ৩. প্রোফাইল ম্যানেজমেন্ট
 ========================================================== */
 
-// @desc    Get current user profile
 export const getMe = async (req, res) => {
   try {
     if (!req.user) {
-      console.log("⚠️ GetMe Failed: No user attached to request");
       return res.status(401).json({ msg: "Not authorized" });
     }
-
     const user = await User.findById(req.user._id).select("-password");
-    if (user) {
-      res.json(user);
-    } else {
-      res.status(404).json({ msg: "User not found" });
-    }
+    res.json(user);
   } catch (error) {
-    console.error("🔥 GetMe Error In Terminal:", error.message);
     res.status(500).json({ msg: "Server error", error: error.message });
   }
 };
 
-// @desc    Update profile
 export const updateProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -173,16 +177,13 @@ export const updateProfile = async (req, res) => {
       user.avatar = req.body.avatar || user.avatar;
       
       const updatedUser = await user.save();
-      console.log("✅ Profile Updated:", user.username);
       res.json(updatedUser);
     }
   } catch (error) {
-    console.error("🔥 Update Error In Terminal:", error.message);
     res.status(500).json({ msg: "Update failed", error: error.message });
   }
 };
 
-// @desc    Refresh Token
 export const refreshToken = async (req, res) => {
   res.json({ msg: "Token refreshed successfully" });
 };

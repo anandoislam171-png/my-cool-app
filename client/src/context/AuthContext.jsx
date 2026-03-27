@@ -1,26 +1,36 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
 import axios from 'axios';
 
 const API_URL = "https://my-cool-app-cvm7.onrender.com/api";
-
-const api = axios.create({
-  baseURL: API_URL,
-});
-
-// ইন্টারসেপ্টর: প্রতি রিকোয়েস্টে টোকেন পাঠানো
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token'); // 'accessToken' থেকে 'token' এ পরিবর্তন
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // ১. এপিআই ইনস্ট্যান্সকে useMemo দিয়ে মেমোরিতে রাখা (যাতে বারবার ক্রিয়েট না হয়)
+  const api = useMemo(() => {
+    const instance = axios.create({
+      baseURL: API_URL,
+    });
+
+    instance.interceptors.request.use((config) => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+
+    return instance;
+  }, []);
+
+  // ২. লগআউট লজিক (এক জায়গায় রাখা ভালো)
+  const handleLogoutData = () => {
+    localStorage.removeItem('token');
+    setUser(null);
+  };
 
   useEffect(() => {
     const initAuth = async () => {
@@ -32,9 +42,9 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        // টোকেন ভ্যালিড কি না চেক করা এবং ইউজার প্রোফাইল আনা
+        // প্রোফাইল ডাটা ফেচ করা
         const res = await api.get('/auth/me'); 
-        setUser(res.data.user || res.data); // ব্যাকএন্ড স্ট্রাকচার অনুযায়ী
+        setUser(res.data.user || res.data);
       } catch (err) {
         console.error("❌ Neural Session Expired:", err);
         handleLogoutData();
@@ -44,14 +54,14 @@ export const AuthProvider = ({ children }) => {
     };
     
     initAuth();
-  }, []);
+  }, [api]); // api এখানে ডিপেন্ডেন্সি হিসেবে নিরাপদ কারণ এটি useMemo-তে আছে
 
-  // কাস্টম সাইনআপ
+  // ৩. সাইনআপ ও লগইন মেথড
   const signup = async (formData) => {
     try {
       const res = await api.post('/auth/register', formData);
       if (res.data.token) {
-        saveTokens(res.data.token);
+        localStorage.setItem('token', res.data.token);
         setUser(res.data.user);
       }
       return res.data;
@@ -60,12 +70,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // কাস্টম লগইন
   const login = async (email, password) => {
     try {
       const res = await api.post('/auth/login', { email, password });
       if (res.data.token) {
-        saveTokens(res.data.token);
+        localStorage.setItem('token', res.data.token);
         setUser(res.data.user);
       }
       return res.data;
@@ -74,44 +83,34 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // সরাসরি ডাটা সেভ করার জন্য (JoinPage-এর সুবিধার্থে)
   const setAuthData = (userData, token) => {
-    saveTokens(token);
+    localStorage.setItem('token', token);
     setUser(userData);
-  };
-
-  const loginWithOAuth = (provider) => {
-    window.location.href = `${API_URL}/auth/${provider}`;
   };
 
   const logout = () => {
     handleLogoutData();
-    window.location.href = '/'; // ল্যান্ডিং পেজে পাঠিয়ে দেওয়া
+    window.location.href = '/'; 
   };
 
-  const saveTokens = (token) => {
-    localStorage.setItem('token', token);
-  };
-
-  const handleLogoutData = () => {
-    localStorage.removeItem('token');
-    setUser(null);
-  };
-
-  const value = {
+  // context value-কে memoize করা যাতে অপ্রয়োজনীয় রি-রেন্ডার না হয়
+  const value = useMemo(() => ({
     user,
     loading,
     login,
     signup,
     logout,
-    setAuthData, // এটি JoinPage-এ ব্যবহার করবেন
-    loginWithOAuth,
-    isAuthenticated: !!user
-  };
+    setAuthData,
+    isAuthenticated: !!user,
+    api // আপনার পেজগুলোতে এই api ব্যবহার করতে পারবেন সরাসরি
+  }), [user, loading, api]);
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {/* এখানে {!loading && children} এর বদলে সরাসরি {children} দেওয়া ভালো 
+         কারণ App.jsx নিজেই loading হ্যান্ডেল করছে। 
+      */}
+      {children}
     </AuthContext.Provider>
   );
 };

@@ -13,8 +13,8 @@ import {
   Radio 
 } from 'lucide-react';
 
-// নতুন মডিউল দুটি ইমপোর্ট করুন
-
+// --- মডিউল ইমপোর্ট (পাথগুলো নিশ্চিত করে নিন) ---
+import NeuralEditor from '../modules/NeuralEditor'; // এটি মিসিং ছিল
 import LiveStudio from '../modules/LiveStudio';
 
 const MobileNavbar = () => {
@@ -107,19 +107,22 @@ const MobileNavbar = () => {
       )}
 
       {/* --- ৩. কন্টেন্ট এডিটর এবং লাইভ স্টুডিও ওভারলে --- */}
-      {/* Neural Text Editor */}
-      <NeuralEditor 
-        isOpen={activeModule === 'text'} 
-        onClose={() => setActiveModule(null)} 
-      />
+      
+      {/* Neural Text Editor - কন্ডিশনাল রেন্ডারিং যোগ করা হয়েছে */}
+      {activeModule === 'text' && (
+        <NeuralEditor 
+          isOpen={true} 
+          onClose={() => setActiveModule(null)} 
+        />
+      )}
 
       {/* Live Studio Interface */}
-      <LiveStudio 
-        isOpen={activeModule === 'live'} 
-        onClose={() => setActiveModule(null)} 
-      />
-      
-      {/* Reels/Video/Photo এর জন্য আপনি পরে আলাদা মডিউল একই ভাবে যোগ করতে পারবেন */}
+      {activeModule === 'live' && (
+        <LiveStudio 
+          isOpen={true} 
+          onClose={() => setActiveModule(null)} 
+        />
+      )}
     </>
   );
 };

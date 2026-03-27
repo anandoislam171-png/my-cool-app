@@ -39,7 +39,13 @@ const server = http.createServer(app);
 const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 redis.on("error", (err) => console.log("Redis Error: ", err));
 
-// --- ৩. কাস্টম JWT মিডলওয়্যার (সংশোধিত) ---
+// --- ৩. COOP Header (Google Auth Fix) ---
+app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  next();
+});
+
+// --- ৪. কাস্টম JWT মিডলওয়্যার ---
 const protect = async (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
@@ -47,7 +53,7 @@ const protect = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.id).select("-password");
-      return next(); // 'return' যোগ করা হয়েছে যাতে ফাংশন এখানেই শেষ হয়
+      return next();
     } catch (error) {
       return res.status(401).json({ error: "Neural Link Severed", message: "Invalid Token" });
     }
@@ -58,14 +64,14 @@ const protect = async (req, res, next) => {
   }
 };
 
-// --- ৪. ক্লাউডিনারি কনফিগারেশন ---
+// --- ৫. ক্লাউডিনারি কনফিগারেশন ---
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// --- ৫. CORS (Neural Shield) ---
+// --- ৬. CORS (Neural Shield) ---
 const allowedOrigins = [
   "http://localhost:5173",
   "https://onyx-drift.com",
@@ -96,7 +102,7 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir));
 
-// --- ৬. রাউটস (Public & Protected) ---
+// --- ৭. রাউটস (Public & Protected) ---
 
 app.get("/", (req, res) => res.send("🚀 OnyxDrift Neural Core Online!"));
 
@@ -104,7 +110,7 @@ app.get("/", (req, res) => res.send("🚀 OnyxDrift Neural Core Online!"));
 app.use('/api/auth', authRoutes);
 
 // ফিড রাউট
-app.get("/api/feed", protect, getNeuralFeed); // রাউটটি ক্লিন করা হয়েছে
+app.get("/api/feed", protect, getNeuralFeed);
 
 // ইউজার প্রোফাইল রুট
 app.get("/api/users/profile/:username", protect, async (req, res) => {
@@ -138,7 +144,7 @@ app.use("/api/market", protect, marketRoutes);
 app.use("/api/admin", protect, adminRoutes);
 app.use("/api/messages", protect, messageRoutes);
 
-// --- ৭. Socket.io ---
+// --- ৮. Socket.io ---
 const io = new Server(server, { 
   cors: { origin: allowedOrigins } 
 });
@@ -148,28 +154,20 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => console.log("User disconnected"));
 });
 
-// --- ৮. গ্লোবাল এরর হ্যান্ডলার ---
+// --- ৯. গ্লোবাল এরর হ্যান্ডলার (একদম শেষে) ---
 app.use((err, req, res, next) => {
-  console.error("🔥 System Error:", err.message);
-  res.status(err.status || 500).json({ 
-    error: "Grid Breakdown", 
-    message: err.message || "Internal Server Error" 
+  console.error("❌ NEURAL_ERROR_DETECTED:");
+  console.error("------------------------");
+  console.error(err.stack); // এটি কনসোলে এররের বিস্তারিত দেখাবে
+  console.error("------------------------");
+  
+  res.status(err.status || 500).json({
+    error: "Internal Server Error",
+    message: err.message || "The Neural Net encountered an anomaly."
   });
 });
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 ONYX CORE ACTIVE ON PORT: ${PORT}`);
-});
-// Global Error Handler (Add this at the end of server.js)
-app.use((err, req, res, next) => {
-  console.error("❌ NEURAL_ERROR_DETECTED:");
-  console.error("------------------------");
-  console.error(err.stack); // এটি আপনাকে বলবে কোন ফাইলের কত নাম্বার লাইনে এরর হয়েছে
-  console.error("------------------------");
-  
-  res.status(500).json({
-    message: "Internal Server Error",
-    error: err.message // এটি ফ্রন্টএন্ডে আসল সমস্যাটি পাঠাবে
-  });
 });
