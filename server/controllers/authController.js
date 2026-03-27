@@ -1,5 +1,8 @@
 import User from "../models/User.js";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library"; // গুগল লাইব্রেরি ইমপোর্ট
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // JWT Token জেনারেট করার ফাংশন
 const generateToken = (id) => {
@@ -8,22 +11,91 @@ const generateToken = (id) => {
   });
 };
 
+/* ==========================================================
+    🌐 ১. গুগল লগইন লজিক (Social Sync)
+========================================================== */
+export const googleLogin = async (req, res) => {
+  const { googleToken } = req.body; // ফ্রন্টএন্ড থেকে পাঠানো টোকেন
+
+  try {
+    // ১. গুগলের টোকেন ভেরিফাই করা
+    const ticket = await client.verifyIdToken({
+      idToken: googleToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const { email, given_name, family_name, picture, sub } = ticket.getPayload();
+
+    // ২. চেক করা ইউজার আগে থেকে আছে কি না
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // যদি নতুন ইউজার হয়, তবে ডাটাবেজে নতুন Identity তৈরি করা
+      // ইউজারনেম হিসেবে ইমেইলের প্রথম অংশ + র্যান্ডম নাম্বার ব্যবহার করা হয়েছে
+      user = await User.create({
+        firstName: given_name,
+        lastName: family_name || "",
+        email: email,
+        username: email.split('@')[0] + Math.floor(Math.random() * 1000),
+        password: sub + process.env.JWT_SECRET, // গুগল ইউজারের জন্য র্যান্ডম পাসওয়ার্ড
+        avatar: picture,
+      });
+      console.log("🆕 New User Created via Google:", user.username);
+    }
+
+    // ৩. টোকেন জেনারেট করে রেসপন্স পাঠানো
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+      token,
+      user: {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+        firstName: user.firstName,
+        lastName: user.lastName
+      }
+    });
+
+  } catch (error) {
+    console.error("🔥 Google Auth Error In Terminal:", error.message);
+    res.status(500).json({ msg: "Google Auth Failed", error: error.message });
+  }
+};
+
+/* ==========================================================
+    🔐 ২. স্ট্যান্ডার্ড অথেন্টিকেশন (Email/Password)
+========================================================== */
+
 // @desc    Register new user
 export const register = async (req, res) => {
   const { firstName, lastName, username, email, password } = req.body;
   try {
     const userExists = await User.findOne({ $or: [{ email }, { username }] });
-    if (userExists) return res.status(400).json({ msg: "User already exists" });
+    if (userExists) {
+      console.log("⚠️ Registration Failed: User already exists");
+      return res.status(400).json({ msg: "User already exists" });
+    }
 
     const user = await User.create({ firstName, lastName, username, email, password });
+    
     if (user) {
+      console.log("✅ New User Registered:", username);
       res.status(201).json({
         _id: user._id,
         username: user.username,
         token: generateToken(user._id),
+        user: {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          username: user.username
+        }
       });
     }
   } catch (error) {
+    console.error("🔥 Registration Error In Terminal:", error.message);
     res.status(500).json({ msg: "Registration failed", error: error.message });
   }
 };
@@ -31,25 +103,53 @@ export const register = async (req, res) => {
 // @desc    Login user
 export const login = async (req, res) => {
   const { email, password } = req.body;
+  console.log("📩 Login attempt for:", email);
+
   try {
     const user = await User.findOne({ email });
-    if (user && (await user.matchPassword(password))) {
+    
+    if (!user) {
+      console.log("❌ Login Failed: User not found");
+      return res.status(401).json({ msg: "Invalid credentials" });
+    }
+
+    const isMatch = await user.matchPassword(password);
+    
+    if (isMatch) {
+      console.log("✅ Login Successful:", user.username);
       res.json({
         _id: user._id,
         username: user.username,
         token: generateToken(user._id),
+        user: {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          username: user.username
+        }
       });
     } else {
+      console.log("🚫 Login Failed: Incorrect password");
       res.status(401).json({ msg: "Invalid credentials" });
     }
   } catch (error) {
-    res.status(500).json({ msg: "Login error" });
+    console.error("🔥 Login Error In Terminal:", error.message);
+    res.status(500).json({ msg: "Login error", error: error.message });
   }
 };
 
-// @desc    Get current user profile (এটিই আপনার এরর দিচ্ছে)
+/* ==========================================================
+    👤 ৩. প্রোফাইল ম্যানেজমেন্ট
+========================================================== */
+
+// @desc    Get current user profile
 export const getMe = async (req, res) => {
   try {
+    if (!req.user) {
+      console.log("⚠️ GetMe Failed: No user attached to request");
+      return res.status(401).json({ msg: "Not authorized" });
+    }
+
     const user = await User.findById(req.user._id).select("-password");
     if (user) {
       res.json(user);
@@ -57,7 +157,8 @@ export const getMe = async (req, res) => {
       res.status(404).json({ msg: "User not found" });
     }
   } catch (error) {
-    res.status(500).json({ msg: "Server error" });
+    console.error("🔥 GetMe Error In Terminal:", error.message);
+    res.status(500).json({ msg: "Server error", error: error.message });
   }
 };
 
@@ -72,15 +173,16 @@ export const updateProfile = async (req, res) => {
       user.avatar = req.body.avatar || user.avatar;
       
       const updatedUser = await user.save();
+      console.log("✅ Profile Updated:", user.username);
       res.json(updatedUser);
     }
   } catch (error) {
-    res.status(500).json({ msg: "Update failed" });
+    console.error("🔥 Update Error In Terminal:", error.message);
+    res.status(500).json({ msg: "Update failed", error: error.message });
   }
 };
 
 // @desc    Refresh Token
 export const refreshToken = async (req, res) => {
-  // সেশন ধরে রাখার জন্য সিম্পল রিফ্রেশ লজিক
   res.json({ msg: "Token refreshed successfully" });
 };

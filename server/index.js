@@ -161,3 +161,15 @@ const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 ONYX CORE ACTIVE ON PORT: ${PORT}`);
 });
+// Global Error Handler (Add this at the end of server.js)
+app.use((err, req, res, next) => {
+  console.error("❌ NEURAL_ERROR_DETECTED:");
+  console.error("------------------------");
+  console.error(err.stack); // এটি আপনাকে বলবে কোন ফাইলের কত নাম্বার লাইনে এরর হয়েছে
+  console.error("------------------------");
+  
+  res.status(500).json({
+    message: "Internal Server Error",
+    error: err.message // এটি ফ্রন্টএন্ডে আসল সমস্যাটি পাঠাবে
+  });
+});
