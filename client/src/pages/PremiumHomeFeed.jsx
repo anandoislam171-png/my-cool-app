@@ -1,217 +1,180 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  FaBolt, FaRegHeart, FaHeart, FaRegComment, FaShareAlt, 
-  FaBrain, FaCog, FaHome, FaStore, FaFingerprint, FaImage 
-} from 'react-icons/fa';
-import axios from 'axios';
+import React, { useEffect, useState, useMemo, useCallback, useContext } from 'react';
+import { motion } from 'framer-motion';
+import { FaHeart, FaBolt, FaRegHeart, FaSearch } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import toast from "react-hot-toast";
+import { AuthContext } from '../context/AuthContext'; // আপনার তৈরি করা কনটেক্সট
 
-const API_URL = "https://my-cool-app-cvm7.onrender.com";
-
-const OnyxFeed = () => {
+const PremiumHomeFeed = ({ searchQuery = "" }) => {
   const navigate = useNavigate();
+  
+  // ✅ ১. গ্লোবাল অথ কনটেক্সট থেকে ডাটা নিন (আলাদা Axios চেকের দরকার নেই)
+  const { user, api, loading: isAuthLoading } = useContext(AuthContext);
 
-  // --- States ---
-  const [user, setUser] = useState(null);
+  // Local States
   const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState("GLOBAL");
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [postText, setPostText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [activeFilter, setActiveFilter] = useState("Global");
 
-  // --- ১. এপিআই কনফিগারেশন (Loop-Proof) ---
-  const api = useMemo(() => {
-    const token = localStorage.getItem('accessToken');
-    return axios.create({
-      baseURL: API_URL,
-      headers: { Authorization: token ? `Bearer ${token}` : "" }
-    });
-  }, []); // ডিপেন্ডেন্সি নেই, তাই বারবার ক্রিয়েট হবে না।
-
-  // --- ২. অথেন্টিকেশন এবং ডাটা ফেচিং ---
-  const loadInitialData = useCallback(async () => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
+  // ✅ ২. Fetch Posts (useCallback ব্যবহার করা হয়েছে যাতে লুপ না হয়)
+  const fetchPosts = useCallback(async () => {
+    // যদি ইউজার না থাকে তবে কল করার দরকার নেই
+    if (!user) return;
 
     try {
-      // ইউজার এবং ফিড ডাটা একসাথে লোড করা (Performance Optimization)
-      const [userRes, postsRes] = await Promise.all([
-        api.get('/api/users/me'),
-        api.get('/api/posts/neural-feed')
-      ]);
-
-      setUser(userRes.data);
-      setPosts(Array.isArray(postsRes.data) ? postsRes.data : []);
+      setLoading(true);
+      const res = await api.get("/api/posts/neural-feed");
+      setPosts(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error("Initialization Failed", err);
-      localStorage.removeItem('accessToken');
-      navigate('/login');
+      console.error("Feed error:", err);
+      // toast.error("Unable to sync with Neural Grid");
     } finally {
-      setIsAuthChecking(false);
       setLoading(false);
     }
-  }, [api, navigate]);
+  }, [api, user]);
 
+  // ইউজার পাওয়া গেলে অটোমেটিক পোস্ট ফেচ করবে
   useEffect(() => {
-    loadInitialData();
-  }, [loadInitialData]);
+    if (user) {
+      fetchPosts();
+    }
+  }, [user, fetchPosts]);
 
-  // --- ৩. পোস্ট সাবমিট লজিক ---
-  const handlePost = async () => {
-    if (!postText.trim()) return;
+  // ✅ ৩. Like Function
+  const handleLike = async (id) => {
     try {
-      const res = await api.post('/api/posts', { text: postText });
-      setPosts([res.data, ...posts]);
-      setPostText("");
-      toast.success("Uplink Successful", {
-        style: { background: '#0891b2', color: '#fff', borderRadius: '99px' }
-      });
+      const res = await api.post(`/api/posts/${id}/like`);
+      // সাকসেস হলে শুধু ওই পোস্টটি আপডেট করুন
+      setPosts(prev => prev.map(p => p._id === id ? res.data : p));
     } catch (err) {
-      toast.error("Transmission Interrupted");
+      toast.error("Signal interference: Action failed");
     }
   };
 
-  // --- ৪. ফিল্টারিং লজিক ---
-  const displayPosts = useMemo(() => {
-    if (activeFilter === "RESONANCE") return posts.filter(p => p.isAiGenerated);
-    if (activeFilter === "ENCRYPTED") return posts.filter(p => p.isEncrypted);
-    return posts;
-  }, [posts, activeFilter]);
+  // ✅ ৪. Filter & Search Logic (useMemo পারফরম্যান্স বাড়াবে)
+  const filteredPosts = useMemo(() => {
+    let result = [...posts];
+    
+    if (activeFilter === "Encrypted") {
+      result = result.filter(p => p.isEncrypted);
+    }
+    
+    if (searchQuery) {
+      result = result.filter(p => 
+        p.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.authorName?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    return result;
+  }, [posts, activeFilter, searchQuery]);
 
-  if (isAuthChecking) {
+  // ৫. লোডিং কন্ডিশন
+  if (isAuthLoading) {
     return (
-      <div className="h-screen bg-black flex items-center justify-center">
-        <motion.div 
-          animate={{ scale: [1, 1.2, 1] }} 
-          transition={{ repeat: Infinity, duration: 1.5 }}
-          className="text-cyan-500 font-black tracking-[10px] text-xs uppercase"
-        >
-          Initializing_Onyx_Grid
-        </motion.div>
+      <div className="h-screen bg-black flex items-center justify-center font-mono text-cyan-500 uppercase tracking-[0.3em]">
+        <FaBolt className="animate-pulse mr-3" /> Initializing_Grid...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-zinc-300 font-sans selection:bg-cyan-500/30">
-      
-      {/* --- নভিগেশন বার --- */}
-      <nav className="fixed top-0 w-full h-14 bg-black/70 backdrop-blur-xl border-b border-white/5 z-[100] px-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img src={user?.avatar} className="w-8 h-8 rounded-full border border-cyan-500/20" alt="me" />
-          <h1 className="text-lg font-black italic text-white tracking-tighter">ONYX<span className="text-cyan-500">DRIFT</span></h1>
+    <div className="bg-[#020617] text-white min-h-screen pb-20 font-sans selection:bg-cyan-500/30">
+      {/* HEADER */}
+      <header className="sticky top-0 z-50 bg-[#020617]/80 backdrop-blur-xl border-b border-white/5 flex justify-between items-center p-4 px-6">
+        <h2 className="text-xl font-black italic text-cyan-500 tracking-tighter uppercase">
+          Onyx<span className="text-white">Drift</span>
+        </h2>
+        <div className="flex items-center gap-4">
+           <FaSearch className="text-zinc-500 cursor-pointer hover:text-cyan-400 transition-colors" onClick={() => navigate("/explorer")} />
         </div>
-        <div className="flex gap-5 text-zinc-500">
-          <FaHome className="text-white text-xl" />
-          <FaStore className="hover:text-white transition-colors cursor-pointer" />
-          <FaCog className="hover:text-white transition-colors cursor-pointer" />
-        </div>
-      </nav>
+      </header>
 
-      {/* --- মেইন কন্টেন্ট --- */}
-      <main className="max-w-[600px] mx-auto pt-14 border-x border-white/5 min-h-screen">
-        
-        {/* ফিল্টার ট্যাব */}
-        <div className="flex border-b border-white/5 sticky top-14 bg-black/80 backdrop-blur-md z-50">
-          {['GLOBAL', 'ENCRYPTED', 'RESONANCE'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveFilter(tab)}
-              className={`flex-1 py-4 text-[10px] font-black tracking-widest transition-all ${activeFilter === tab ? 'text-cyan-500 border-b border-cyan-500' : 'text-zinc-600'}`}
+      {/* MAIN FEED */}
+      <main className="max-w-2xl mx-auto border-x border-white/5 min-h-screen bg-black/20">
+        {/* TABS/FILTERS */}
+        <div className="flex gap-3 p-4 border-b border-white/5 sticky top-[61px] bg-[#020617]/60 backdrop-blur-md z-40">
+          {["Global", "Encrypted", "Following"].map(f => (
+            <button 
+              key={f} 
+              onClick={() => setActiveFilter(f)}
+              className={`px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all duration-300 ${
+                activeFilter === f 
+                ? 'bg-cyan-500 text-black shadow-[0_0_15px_rgba(6,182,212,0.4)]' 
+                : 'bg-white/5 text-zinc-500 hover:bg-white/10'
+              }`}
             >
-              {tab}
+              {f}
             </button>
           ))}
         </div>
 
-        {/* ইনপুট এরিয়া */}
-        <div className="p-4 border-b border-white/5 bg-zinc-900/10">
-          <div className="flex gap-4">
-            <img src={user?.avatar} className="w-10 h-10 rounded-full" alt="" />
-            <div className="flex-1">
-              <textarea
-                value={postText}
-                onChange={(e) => setPostText(e.target.value)}
-                placeholder="Synchronize with the grid..."
-                className="w-full bg-transparent border-none outline-none text-lg placeholder-zinc-700 resize-none pt-2"
-                rows="2"
-              />
-              <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/[0.03]">
-                <div className="flex gap-4 text-cyan-600">
-                  <FaImage className="cursor-pointer hover:text-cyan-400" />
-                  <FaBrain className="cursor-pointer hover:text-cyan-400" />
-                </div>
-                <button 
-                  onClick={handlePost}
-                  disabled={!postText.trim()}
-                  className="bg-cyan-600 text-black px-5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider hover:bg-cyan-400 disabled:opacity-20 transition-all shadow-[0_0_15px_rgba(8,145,170,0.3)]"
-                >
-                  Execute
-                </button>
-              </div>
-            </div>
+        {/* POST LIST */}
+        {loading && posts.length === 0 ? (
+          <div className="p-20 text-center flex flex-col items-center gap-4">
+             <div className="w-8 h-8 border-2 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin" />
+             <span className="text-[10px] text-zinc-600 font-mono tracking-widest uppercase">Scanning_Neural_Grid...</span>
           </div>
-        </div>
-
-        {/* পোস্ট লিস্ট */}
-        {loading ? (
-          <div className="p-20 text-center font-mono text-[10px] tracking-[5px] text-zinc-700">SCANNING_DATA_STREAMS...</div>
         ) : (
-          <div className="divide-y divide-white/[0.03]">
-            {displayPosts.map((post) => (
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }}
-                key={post._id} 
-                className="p-4 flex gap-4 hover:bg-white/[0.01] transition-all group"
-              >
-                <img src={post.authorAvatar} className="w-10 h-10 rounded-full border border-white/5" alt="" />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-zinc-200 text-sm">{post.authorName}</span>
-                    <span className="text-zinc-600 text-xs">@{post.username || 'drifter'}</span>
+          <div className="flex flex-col">
+            {filteredPosts.length > 0 ? (
+              filteredPosts.map((post, idx) => (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  transition={{ delay: idx * 0.05 }}
+                  key={post._id} 
+                  className="p-6 border-b border-white/5 hover:bg-white/[0.02] transition-colors group"
+                >
+                  <div className="flex items-center gap-4 mb-4">
+                     <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-600 to-cyan-900 flex items-center justify-center font-black text-white shadow-lg border border-white/10">
+                        {post.authorName?.charAt(0).toUpperCase()}
+                     </div>
+                     <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                           <h4 className="text-[12px] font-bold uppercase tracking-tight text-zinc-200">{post.authorName}</h4>
+                           <span className="text-[9px] text-cyan-500/50 font-mono italic">#{post._id.slice(-4)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse" />
+                           <span className="text-[8px] text-zinc-500 tracking-[0.2em] font-bold uppercase">Signal_Locked</span>
+                        </div>
+                     </div>
                   </div>
-                  <p className={`text-[15px] leading-relaxed ${post.isAiGenerated ? 'text-cyan-100/70 italic' : 'text-zinc-400'}`}>
+                  
+                  <p className="text-[14px] leading-relaxed text-zinc-400 font-medium pl-1">
                     {post.text}
                   </p>
                   
-                  {/* ইন্টারঅ্যাকশন বাটন */}
-                  <div className="flex justify-between mt-4 max-w-sm text-zinc-600 text-xs">
-                    <div className="flex items-center gap-2 hover:text-rose-500 cursor-pointer transition-colors">
-                      <FaRegHeart /> <span>{post.likes?.length || 0}</span>
-                    </div>
-                    <div className="flex items-center gap-2 hover:text-cyan-500 cursor-pointer transition-colors">
-                      <FaRegComment /> <span>{post.comments?.length || 0}</span>
-                    </div>
-                    <div className="hover:text-green-500 cursor-pointer transition-colors">
-                      <FaShareAlt />
-                    </div>
-                    <div className="hover:text-purple-500 cursor-pointer transition-colors">
-                      <FaBrain />
-                    </div>
+                  <div className="mt-6 flex items-center gap-6 pl-1">
+                    <button 
+                      onClick={() => handleLike(post._id)} 
+                      className={`flex items-center gap-2.5 transition-all duration-300 ${
+                        post.likes?.includes(user?._id) ? 'text-cyan-400' : 'text-zinc-600 hover:text-zinc-400'
+                      }`}
+                    >
+                      {post.likes?.includes(user?._id) ? <FaHeart size={16} /> : <FaRegHeart size={16} />}
+                      <span className="text-[11px] font-mono font-bold">{post.likes?.length || 0}</span>
+                    </button>
+                    
+                    {/* Placeholder for comments or shares */}
+                    <div className="h-4 w-[1px] bg-white/5" />
+                    <span className="text-[9px] text-zinc-700 font-mono uppercase tracking-tighter">Verified_Neural_Node</span>
                   </div>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              ))
+            ) : (
+              <div className="p-20 text-center text-zinc-600 font-mono text-xs uppercase tracking-widest">
+                No_Signals_Detected_In_This_Sector
+              </div>
+            )}
           </div>
         )}
       </main>
 
-      {/* ফ্লোটিং বাটন (Mobile Style) */}
-      <motion.div 
-        whileTap={{ scale: 0.9 }}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-cyan-600 rounded-full flex items-center justify-center text-black shadow-[0_0_20px_rgba(8,145,170,0.5)] z-[110] cursor-pointer"
-      >
-        <FaBolt />
-      </motion.div>
-
+      {/* ডেকোরেটিভ নিয়ন লাইট */}
+      <div className="fixed top-0 right-0 w-96 h-96 bg-cyan-500/5 blur-[120px] rounded-full pointer-events-none" />
     </div>
   );
 };
 
-export default OnyxFeed;
+export default PremiumHomeFeed;

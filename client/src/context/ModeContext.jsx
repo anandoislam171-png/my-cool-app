@@ -1,21 +1,58 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useMemo } from 'react';
 
+// ১. কনটেক্সট তৈরি
 const ModeContext = createContext();
 
+/**
+ * ModeProvider Component
+ * এটি পুরো অ্যাপে 'minimal', 'neural', বা 'classic' মোড কন্ট্রোল করবে।
+ */
 export const ModeProvider = ({ children }) => {
-  // ডিফল্ট মোড 'minimal' রাখা হয়েছে তোমার ভিশন অনুযায়ী
-  const [activeMode, setActiveMode] = useState('minimal'); 
+  // ২. লোকাল স্টোরেজ থেকে আগের মোড রিকভার করা (না থাকলে 'minimal')
+  const [activeMode, setActiveMode] = useState(() => {
+    const savedMode = localStorage.getItem('onyx_mode');
+    return savedMode || 'minimal';
+  });
 
-  const toggleMode = (newMode) => {
+  // ৩. মোড পরিবর্তন করার ফাংশন (useCallback ব্যবহার করা হয়েছে পারফরম্যান্সের জন্য)
+  const toggleMode = useCallback((newMode) => {
     setActiveMode(newMode);
-    // এখানে তুমি চাইলে Backend API কল করে ইউজারের প্রেফারেন্স ডাটাবেজে সেভ করতে পারো
-  };
+    localStorage.setItem('onyx_mode', newMode);
+    
+    // ঐচ্ছিক: এখানে নিয়ন সাউন্ড ইফেক্ট বা হ্যাপটিক ফিডব্যাক যোগ করা যেতে পারে
+    console.log(`[Onyx-System]: Mode shifted to ${newMode.toUpperCase()}`);
+  }, []);
+
+  // ৪. মোড চেঞ্জ হলে বডি ক্লাসে আপডেট করা (CSS থিমিং সহজ করার জন্য)
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove('mode-minimal', 'mode-neural', 'mode-classic');
+    root.classList.add(`mode-${activeMode}`);
+  }, [activeMode]);
+
+  // ৫. ভ্যালু মেমোইজেশন (অপ্রয়োজনীয় রি-রেন্ডার রোধ করতে)
+  const value = useMemo(() => ({
+    activeMode,
+    toggleMode,
+    isMinimal: activeMode === 'minimal',
+    isNeural: activeMode === 'neural'
+  }), [activeMode, toggleMode]);
 
   return (
-    <ModeContext.Provider value={{ activeMode, toggleMode }}>
+    <ModeContext.Provider value={value}>
       {children}
     </ModeContext.Provider>
   );
 };
 
-export const useMode = () => useContext(ModeContext);
+/**
+ * Custom Hook: useMode
+ * এর মাধ্যমে যেকোনো কম্পোনেন্ট থেকে মোড অ্যাক্সেস করা যাবে।
+ */
+export const useMode = () => {
+  const context = useContext(ModeContext);
+  if (!context) {
+    throw new Error("useMode must be used within a ModeProvider");
+  }
+  return context;
+};

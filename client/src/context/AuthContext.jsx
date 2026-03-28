@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
+import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import axios from 'axios';
 
 const API_URL = "https://my-cool-app-cvm7.onrender.com/api";
@@ -9,7 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ১. এপিআই ইনস্ট্যান্সকে useMemo দিয়ে মেমোরিতে রাখা (যাতে বারবার ক্রিয়েট না হয়)
+  // 🛠️ ১. স্ট্যাবল এপিআই ইনস্ট্যান্স (Axios Interceptors সহ)
   const api = useMemo(() => {
     const instance = axios.create({
       baseURL: API_URL,
@@ -26,38 +26,61 @@ export const AuthProvider = ({ children }) => {
     return instance;
   }, []);
 
-  // ২. লগআউট লজিক (এক জায়গায় রাখা ভালো)
-  const handleLogoutData = () => {
+  // 🛠️ ২. ইন্টারনাল হেল্পার: ডাটা ক্লিনআপ (useCallback জরুরি)
+  const handleLogoutData = useCallback(() => {
     localStorage.removeItem('token');
     setUser(null);
-  };
+  }, []);
 
+  // 🛠️ ৩. ইনিশিয়াল অথ চেক (Neural Session Recovery)
   useEffect(() => {
+    let isMounted = true;
+
     const initAuth = async () => {
       const token = localStorage.getItem('token');
       
       if (!token) {
-        setLoading(false);
+        if (isMounted) setLoading(false);
         return;
       }
 
       try {
-        // প্রোফাইল ডাটা ফেচ করা
         const res = await api.get('/auth/me'); 
-        setUser(res.data.user || res.data);
+        if (isMounted) {
+          setUser(res.data.user || res.data);
+        }
       } catch (err) {
-        console.error("❌ Neural Session Expired:", err);
-        handleLogoutData();
+        console.error("❌ Neural Session Expired");
+        // সেশন ফেইল করলে শুধু ডাটা ক্লিন করুন, setLoading(false) finally ব্লকে হবে
+        if (isMounted) {
+          localStorage.removeItem('token');
+          setUser(null);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     
     initAuth();
-  }, [api]); // api এখানে ডিপেন্ডেন্সি হিসেবে নিরাপদ কারণ এটি useMemo-তে আছে
+    return () => { isMounted = false; };
+  }, [api]); // handleLogoutData এখানে দেওয়ার দরকার নেই, লুপ হতে পারে
 
-  // ৩. সাইনআপ ও লগইন মেথড
-  const signup = async (formData) => {
+  // 🛠️ ৪. গুগল লগইন মেথড
+  const googleLogin = useCallback(async (googleCredential) => {
+    try {
+      const res = await api.post('/auth/google', { token: googleCredential });
+      if (res.data.token) {
+        localStorage.setItem('token', res.data.token);
+        setUser(res.data.user);
+        return res.data;
+      }
+    } catch (err) {
+      throw err.response?.data?.message || "Google Authentication Failed";
+    }
+  }, [api]);
+
+  // 🛠️ ৫. সাইনআপ ও লগইন মেথড
+  const signup = useCallback(async (formData) => {
     try {
       const res = await api.post('/auth/register', formData);
       if (res.data.token) {
@@ -68,9 +91,9 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       throw err.response?.data?.message || "Registration Failed";
     }
-  };
+  }, [api]);
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     try {
       const res = await api.post('/auth/login', { email, password });
       if (res.data.token) {
@@ -81,38 +104,45 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       throw err.response?.data?.message || "Login Failed";
     }
-  };
+  }, [api]);
 
-  const setAuthData = (userData, token) => {
+  // 🛠️ ৬. ম্যানুয়াল অথ ডাটা সেট
+  const setAuthData = useCallback((userData, token) => {
     localStorage.setItem('token', token);
     setUser(userData);
-  };
+  }, []);
 
-  const logout = () => {
+  // 🛠️ ৭. লগআউট (Neural Session Termination)
+  const logout = useCallback(() => {
     handleLogoutData();
     window.location.href = '/'; 
-  };
+  }, [handleLogoutData]);
 
-  // context value-কে memoize করা যাতে অপ্রয়োজনীয় রি-রেন্ডার না হয়
+  // 🛠️ কনটেক্সট ভ্যালু মেমোইজেশন
   const value = useMemo(() => ({
     user,
     loading,
     login,
     signup,
+    googleLogin,
     logout,
     setAuthData,
     isAuthenticated: !!user,
-    api // আপনার পেজগুলোতে এই api ব্যবহার করতে পারবেন সরাসরি
-  }), [user, loading, api]);
+    api 
+  }), [user, loading, api, login, signup, googleLogin, logout, setAuthData]);
 
   return (
     <AuthContext.Provider value={value}>
-      {/* এখানে {!loading && children} এর বদলে সরাসরি {children} দেওয়া ভালো 
-         কারণ App.jsx নিজেই loading হ্যান্ডেল করছে। 
-      */}
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+// কাস্টম হুক এক্সপোর্ট
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+};
