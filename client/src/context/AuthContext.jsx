@@ -1,8 +1,7 @@
 import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import axios from 'axios';
 
-// Render এর Environment Variables থেকে URL নেওয়ার চেষ্টা করুন, না থাকলে হার্ডকোড।
-const API_BASE_URL = import.meta.env.VITE_API_URL || "https://my-cool-app-cvm7.onrender.com/api";
+const API_URL = "https://my-cool-app-cvm7.onrender.com/api";
 
 export const AuthContext = createContext();
 
@@ -10,10 +9,10 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🛠️ ১. স্ট্যাবল এপিআই ইনস্ট্যান্স
+  // 🛠️ ১. স্ট্যাবল এপিআই ইনস্ট্যান্স (Axios Interceptors সহ)
   const api = useMemo(() => {
     const instance = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: API_URL,
     });
 
     instance.interceptors.request.use((config) => {
@@ -27,45 +26,46 @@ export const AuthProvider = ({ children }) => {
     return instance;
   }, []);
 
-  // 🛠️ ২. ইমেজ/ভিডিও ইউআরএল জেনারেটর (নতুন ফাংশন যা আপনি পুরো অ্যাপে পাবেন)
-  const getFullAssetUrl = useCallback((path) => {
-    if (!path) return null;
-    if (path.startsWith('http')) return path; // যদি অলরেডি ফুল ইউআরএল থাকে (Cloudinary/Google)
-    
-    // API_URL থেকে /api বাদ দিয়ে মেইন সার্ভার ইউআরএল বের করা
-    const serverUrl = API_BASE_URL.replace('/api', '');
-    return `${serverUrl}/${path.replace(/\\/g, '/')}`;
-  }, []);
-
+  // 🛠️ ২. ইন্টারনাল হেল্পার: ডাটা ক্লিনআপ (useCallback জরুরি)
   const handleLogoutData = useCallback(() => {
     localStorage.removeItem('token');
     setUser(null);
   }, []);
 
-  // 🛠️ ৩. ইনিশিয়াল অথ চেক
+  // 🛠️ ৩. ইনিশিয়াল অথ চেক (Neural Session Recovery)
   useEffect(() => {
     let isMounted = true;
+
     const initAuth = async () => {
       const token = localStorage.getItem('token');
+      
       if (!token) {
         if (isMounted) setLoading(false);
         return;
       }
+
       try {
         const res = await api.get('/auth/me'); 
         if (isMounted) {
           setUser(res.data.user || res.data);
         }
       } catch (err) {
-        if (isMounted) handleLogoutData();
+        console.error("❌ Neural Session Expired");
+        // সেশন ফেইল করলে শুধু ডাটা ক্লিন করুন, setLoading(false) finally ব্লকে হবে
+        if (isMounted) {
+          localStorage.removeItem('token');
+          setUser(null);
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
     };
+    
     initAuth();
     return () => { isMounted = false; };
-  }, [api, handleLogoutData]);
+  }, [api]); // handleLogoutData এখানে দেওয়ার দরকার নেই, লুপ হতে পারে
 
+  // 🛠️ ৪. গুগল লগইন মেথড
   const googleLogin = useCallback(async (googleCredential) => {
     try {
       const res = await api.post('/auth/google', { token: googleCredential });
@@ -79,6 +79,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, [api]);
 
+  // 🛠️ ৫. সাইনআপ ও লগইন মেথড
   const signup = useCallback(async (formData) => {
     try {
       const res = await api.post('/auth/register', formData);
@@ -105,6 +106,13 @@ export const AuthProvider = ({ children }) => {
     }
   }, [api]);
 
+  // 🛠️ ৬. ম্যানুয়াল অথ ডাটা সেট
+  const setAuthData = useCallback((userData, token) => {
+    localStorage.setItem('token', token);
+    setUser(userData);
+  }, []);
+
+  // 🛠️ ৭. লগআউট (Neural Session Termination)
   const logout = useCallback(() => {
     handleLogoutData();
     window.location.href = '/'; 
@@ -118,10 +126,10 @@ export const AuthProvider = ({ children }) => {
     signup,
     googleLogin,
     logout,
+    setAuthData,
     isAuthenticated: !!user,
-    api,
-    getFullAssetUrl // 👈 এটি এখন যেকোনো কম্পোনেন্ট থেকে ব্যবহার করতে পারবেন
-  }), [user, loading, api, login, signup, googleLogin, logout, getFullAssetUrl]);
+    api 
+  }), [user, loading, api, login, signup, googleLogin, logout, setAuthData]);
 
   return (
     <AuthContext.Provider value={value}>
@@ -130,8 +138,11 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+// কাস্টম হুক এক্সপোর্ট
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error("useAuth must be used within an AuthProvider");
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
   return context;
 };

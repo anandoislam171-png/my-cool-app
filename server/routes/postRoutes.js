@@ -1,9 +1,31 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const { createPost } = require('../controllers/postController');
-const { protect } = require('../middleware/authMiddleware');
+import multer from 'multer';
+import { 
+  createPost, 
+  likePost, 
+  getReels, 
+  addComment, 
+  updateReelPulse 
+} from '../controllers/postController.js';
+import { protect } from '../middleware/authMiddleware.js';
 
-// OAuth2 দিয়ে সুরক্ষিত রাউট
-router.post('/create', protect, createPost);
+// মুল্টার কনফিগারেশন (সাময়িকভাবে ছবি স্টোর করার জন্য)
+const upload = multer({ dest: 'uploads/' });
 
-module.exports = router;
+// --- Neural Routes ---
+
+// পোস্ট তৈরি (ছবি বা ভিডিওসহ)
+router.post('/create', protect, upload.single('media'), createPost);
+
+// লাইক/এনার্জি টগল
+router.post('/:id/like', protect, likePost);
+
+// রিলস এবং ফিড
+router.get('/reels', protect, getReels);
+router.patch('/:id/pulse', protect, updateReelPulse);
+
+// কমেন্ট সেকশন
+router.post('/:id/comment', protect, addComment);
+
+export default router;

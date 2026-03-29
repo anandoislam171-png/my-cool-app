@@ -28,14 +28,14 @@ import adminRoutes from "./routes/admin.js";
 import authRoutes from './routes/authRoutes.js';
 import { getNeuralFeed } from "./controllers/feedController.js";
 
-// --- ১. ডেটাবেজ কানেকশন ---
+// --- ১. ইনিশিয়ালিজেশন ---
 connectDB();
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// --- ২. Redis (Performance Layer) ---
+// --- ২. Redis কানেকশন ---
 const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 redis.on("error", (err) => console.log("Redis Error: ", err));
 
@@ -45,7 +45,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- ৪. কাস্টম JWT মিডলওয়্যার ---
+// --- ৪. JWT প্রোটেক্ট মিডলওয়্যার ---
 const protect = async (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
@@ -53,15 +53,13 @@ const protect = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.id).select("-password");
+      if (!req.user) throw new Error("User not found");
       return next();
     } catch (error) {
       return res.status(401).json({ error: "Neural Link Severed", message: "Invalid Token" });
     }
   }
-  
-  if (!token) {
-    return res.status(401).json({ error: "Access Denied", message: "No Token Provided" });
-  }
+  return res.status(401).json({ error: "Access Denied", message: "No Token Provided" });
 };
 
 // --- ৫. ক্লাউডিনারি কনফিগারেশন ---
@@ -77,11 +75,12 @@ const allowedOrigins = [
   "https://onyx-drift.com",
   "https://www.onyx-drift.com",
   "https://onyx-drift-app-final.vercel.app",
-  "https://my-cool-app-cvm7.onrender.com"
+  "https://my-cool-app-cvm7.onrender.com" // আপনার রেন্ডার ইউআরএল
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
+    // origin খালি থাকলে (যেমন মোবাইল অ্যাপ বা পোস্টম্যান) এলাউ করা হয়
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -97,12 +96,15 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(passport.initialize());
 
-// Static Folder
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+// --- ৭. স্ট্যাটিক ফোল্ডার (ছবি/ভিডিও দেখার জন্য সবচেয়ে জরুরি) ---
+const uploadDir = path.resolve(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+// ছবির জন্য এই পাথটি ফ্রন্টএন্ডে ব্যবহার হবে: server-url/uploads/filename.jpg
 app.use('/uploads', express.static(uploadDir));
 
-// --- ৭. রাউটস (Public & Protected) ---
+// --- ৮. রাউটস (Routes) ---
 
 app.get("/", (req, res) => res.send("🚀 OnyxDrift Neural Core Online!"));
 
@@ -144,7 +146,7 @@ app.use("/api/market", protect, marketRoutes);
 app.use("/api/admin", protect, adminRoutes);
 app.use("/api/messages", protect, messageRoutes);
 
-// --- ৮. Socket.io ---
+// --- ৯. Socket.io ---
 const io = new Server(server, { 
   cors: { origin: allowedOrigins } 
 });
@@ -154,19 +156,16 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => console.log("User disconnected"));
 });
 
-// --- ৯. গ্লোবাল এরর হ্যান্ডলার (একদম শেষে) ---
+// --- ১০. গ্লোবাল এরর হ্যান্ডলার ---
 app.use((err, req, res, next) => {
-  console.error("❌ NEURAL_ERROR_DETECTED:");
-  console.error("------------------------");
-  console.error(err.stack); // এটি কনসোলে এররের বিস্তারিত দেখাবে
-  console.error("------------------------");
-  
+  console.error("❌ NEURAL_ERROR_DETECTED:", err.message);
   res.status(err.status || 500).json({
     error: "Internal Server Error",
     message: err.message || "The Neural Net encountered an anomaly."
   });
 });
 
+// --- ১১. সার্ভার লিসেন ---
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 ONYX CORE ACTIVE ON PORT: ${PORT}`);

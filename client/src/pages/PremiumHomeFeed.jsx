@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import toast from "react-hot-toast";
 import { AuthContext } from '../context/AuthContext';
 
-// --- ১. পোস্ট তৈরি করার ইন্টারনাল কম্পোনেন্ট (Neural Synthesizer) ---
+// --- ১. পোস্ট তৈরি করার কম্পোনেন্ট (Neural Synthesizer) ---
 const CreatePost = ({ onPostCreated, api, user }) => {
   const [text, setText] = useState("");
   const [media, setMedia] = useState(null);
@@ -39,15 +39,16 @@ const CreatePost = ({ onPostCreated, api, user }) => {
 
     try {
       setLoading(true);
-      await api.post("/posts/create", formData, {
+      // ব্যাকএন্ডের router.post("/") এন্ডপয়েন্টে রিকোয়েস্ট যাবে
+      await api.post("/posts", formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
       toast.success("Signal Transmitted!");
       setText("");
       removeMedia();
-      if (onPostCreated) onPostCreated();
+      if (onPostCreated) onPostCreated(); 
     } catch (err) {
-      toast.error("Transmission Interrupted");
+      toast.error(err.response?.data?.msg || "Transmission Interrupted");
     } finally {
       setLoading(false);
     }
@@ -58,7 +59,7 @@ const CreatePost = ({ onPostCreated, api, user }) => {
       <div className="flex gap-3">
         <div className="w-10 h-10 rounded-full bg-zinc-900 border border-white/10 shrink-0 overflow-hidden shadow-md">
           <img 
-            src={user?.profilePic || `https://ui-avatars.com/api/?name=${user?.name || 'U'}&background=06b6d4&color=fff`} 
+            src={user?.avatar || `https://ui-avatars.com/api/?name=${user?.firstName || 'U'}&background=06b6d4&color=fff`} 
             alt="me" 
             className="w-full h-full object-cover" 
           />
@@ -137,10 +138,12 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
     if (!user) return;
     try {
       setLoading(true);
-      const res = await api.get("/posts/neural-feed");
+      // ব্যাকএন্ডের রাউট অনুযায়ী সংশোধিত: "/posts/neural-feed"
+      const res = await api.get("/posts/neural-feed"); 
       setPosts(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
       console.error("Feed error:", err);
+      toast.error("Neural grid connection failed");
     } finally {
       setLoading(false);
     }
@@ -153,21 +156,17 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
   const handleLike = async (id) => {
     try {
       const res = await api.post(`/posts/${id}/like`);
-      setPosts(prev => prev.map(p => p._id === id ? res.data : p));
+      setPosts(prev => prev.map(p => p._id === id ? { ...p, likes: res.data.likes } : p));
     } catch (err) {
       toast.error("Sync failed");
     }
   };
 
-  // ডাইনামিক ইউআরএল হ্যান্ডলার
-  const getMediaUrl = (path) => {
-    if (!path) return null;
-    if (path.startsWith('http')) return path;
-    
-    // Render এ সেট করা VITE_API_URL থেকে বেইজ ইউআরএল বের করা
-    const apiUrl = import.meta.env.VITE_API_URL || "";
-    const baseUrl = apiUrl.replace('/api', '');
-    return `${baseUrl}/${path.replace(/\\/g, '/')}`;
+  const getMediaUrl = (url) => {
+    if (!url) return null;
+    if (url.startsWith('http')) return url;
+    const baseUrl = (import.meta.env.VITE_API_URL || "").replace('/api', '');
+    return `${baseUrl}/${url.replace(/\\/g, '/')}`;
   };
 
   const filteredPosts = useMemo(() => {
@@ -186,7 +185,6 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
 
   return (
     <div className="bg-black min-h-screen text-white font-sans selection:bg-cyan-500/30">
-      {/* HEADER */}
       <header className="sticky top-0 z-50 bg-black/60 backdrop-blur-md border-b border-white/[0.05] p-4 flex justify-between items-center px-6">
         <h2 className="text-lg font-black tracking-tighter uppercase italic">
           Onyx<span className="text-cyan-500 font-mono">Drift</span>
@@ -197,7 +195,6 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
       <main className="max-w-xl mx-auto border-x border-white/[0.05] min-h-screen bg-zinc-950/20">
         <CreatePost onPostCreated={fetchPosts} api={api} user={user} />
 
-        {/* TABS */}
         <div className="flex border-b border-white/[0.05] sticky top-[60px] bg-black/80 backdrop-blur-md z-40">
           {["Global", "Encrypted", "Following"].map(f => (
             <button 
@@ -205,7 +202,7 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
               onClick={() => setActiveFilter(f)}
               className="flex-1 py-4 text-[11px] font-bold uppercase tracking-widest relative"
             >
-              <span className={activeFilter === f ? "text-white" : "text-zinc-500 transition-colors"}>{f}</span>
+              <span className={activeFilter === f ? "text-white" : "text-zinc-500"}>{f}</span>
               {activeFilter === f && (
                 <motion.div 
                   layoutId="activeTab" 
@@ -216,7 +213,6 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
           ))}
         </div>
 
-        {/* FEED LIST */}
         <div className="flex flex-col">
           {loading && posts.length === 0 ? (
             <div className="p-20 text-center text-zinc-700 font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse">
@@ -233,13 +229,12 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
                 <div className="flex gap-3">
                   <div className="flex flex-col items-center shrink-0">
                     <div className="w-10 h-10 rounded-full bg-zinc-900 border border-white/10 overflow-hidden shadow-lg group-hover:border-cyan-500/30 transition-colors">
-                      {post.authorProfilePic ? (
-                        <img src={getMediaUrl(post.authorProfilePic)} alt="avatar" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-500 font-bold text-xs">
-                          {post.authorName?.charAt(0) || 'D'}
-                        </div>
-                      )}
+                      <img 
+                        src={getMediaUrl(post.authorAvatar || post.authorProfilePic)} 
+                        alt="avatar" 
+                        className="w-full h-full object-cover" 
+                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${post.authorName || 'D'}&background=random`; }}
+                      />
                     </div>
                     <div className="w-[1px] grow bg-white/[0.05] my-2 group-hover:bg-white/10 transition-colors" />
                   </div>
@@ -253,31 +248,26 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
                       </div>
                     </div>
 
-                    <p className="text-[14px] text-zinc-300 leading-relaxed mb-2 whitespace-pre-wrap">{post.text}</p>
+                    <p className="text-[14px] text-zinc-300 leading-relaxed mb-2 whitespace-pre-wrap">{post.text || post.content}</p>
 
-                    {/* PHOTO / VIDEO DISPLAY */}
-                    {post.mediaUrl && (
+                    {post.media && (
                       <div className="rounded-xl border border-white/[0.08] overflow-hidden my-2 bg-zinc-900/40 shadow-inner group-hover:border-white/20 transition-all">
-                        {post.mediaUrl.match(/\.(mp4|webm|ogg)$/i) || post.mediaType === "video" ? (
+                        {post.mediaType === "video" || post.media.includes('/video/upload/') ? (
                           <video 
-                            src={getMediaUrl(post.mediaUrl)} 
+                            src={getMediaUrl(post.media)} 
                             controls 
                             className="w-full max-h-[400px] object-contain bg-black" 
                           />
                         ) : (
                           <img 
-                            src={getMediaUrl(post.mediaUrl)} 
+                            src={getMediaUrl(post.media)} 
                             alt="media" 
                             className="w-full h-auto object-cover max-h-[500px]" 
-                            onError={(e) => { 
-                                e.target.style.display = 'none'; 
-                            }}
                           />
                         )}
                       </div>
                     )}
 
-                    {/* ACTIONS */}
                     <div className="flex justify-between items-center max-w-sm mt-3 text-zinc-500">
                       <button className="hover:text-cyan-400 flex items-center gap-2 transition-all">
                         <FaRegComment size={15} /> <span className="text-[11px]">{post.comments?.length || 0}</span>
