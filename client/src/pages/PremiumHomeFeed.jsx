@@ -27,6 +27,7 @@ const CreatePost = ({ onPostCreated, api, user }) => {
   const removeMedia = () => {
     setMedia(null);
     setPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleSubmit = async () => {
@@ -158,11 +159,15 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
     }
   };
 
+  // ডাইনামিক ইউআরএল হ্যান্ডলার
   const getMediaUrl = (path) => {
     if (!path) return null;
     if (path.startsWith('http')) return path;
-    // আপনার রেন্ডার সার্ভার ইউআরএলটি এখানে চেক করুন
-    return `https://my-cool-app-cvm7.onrender.com/${path.replace(/\\/g, '/')}`;
+    
+    // Render এ সেট করা VITE_API_URL থেকে বেইজ ইউআরএল বের করা
+    const apiUrl = import.meta.env.VITE_API_URL || "";
+    const baseUrl = apiUrl.replace('/api', '');
+    return `${baseUrl}/${path.replace(/\\/g, '/')}`;
   };
 
   const filteredPosts = useMemo(() => {
@@ -202,7 +207,10 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
             >
               <span className={activeFilter === f ? "text-white" : "text-zinc-500 transition-colors"}>{f}</span>
               {activeFilter === f && (
-                <motion.div layoutId="activeTab" className="absolute bottom-0 left-0 w-full h-[2px] bg-cyan-500 shadow-[0_0_10px_#06b6d4]" />
+                <motion.div 
+                  layoutId="activeTab" 
+                  className="absolute bottom-0 left-0 w-full h-[2px] bg-cyan-500 shadow-[0_0_10px_#06b6d4]" 
+                />
               )}
             </button>
           ))}
@@ -241,7 +249,7 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-[14px] text-zinc-100 hover:underline">{post.authorName || "Drifter"}</span>
                         <span className="text-zinc-600 text-[13px]">@{post.authorName?.toLowerCase().replace(/\s/g, '') || "anon"}</span>
-                        <span className="text-zinc-700 text-[11px]">· 13h</span>
+                        <span className="text-zinc-700 text-[11px]">· {new Date(post.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                       </div>
                     </div>
 
@@ -262,7 +270,6 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
                             alt="media" 
                             className="w-full h-auto object-cover max-h-[500px]" 
                             onError={(e) => { 
-                                console.error("Media Load Error:", getMediaUrl(post.mediaUrl));
                                 e.target.style.display = 'none'; 
                             }}
                           />
@@ -273,7 +280,7 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
                     {/* ACTIONS */}
                     <div className="flex justify-between items-center max-w-sm mt-3 text-zinc-500">
                       <button className="hover:text-cyan-400 flex items-center gap-2 transition-all">
-                        <FaRegComment size={15} /> <span className="text-[11px]">12</span>
+                        <FaRegComment size={15} /> <span className="text-[11px]">{post.comments?.length || 0}</span>
                       </button>
                       <button className="hover:text-green-500 transition-all"><FaRetweet size={17} /></button>
                       <button 
