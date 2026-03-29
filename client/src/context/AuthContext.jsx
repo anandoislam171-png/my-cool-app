@@ -1,8 +1,8 @@
 import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import axios from 'axios';
 
-// OnyxDrift API Configuration
-const API_URL = "https://my-cool-app-cvm7.onrender.com/api";
+// Render এর Environment Variables থেকে URL নেওয়ার চেষ্টা করুন, না থাকলে হার্ডকোড।
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://my-cool-app-cvm7.onrender.com/api";
 
 export const AuthContext = createContext();
 
@@ -10,14 +10,12 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🛰️ 1. Neural API Instance (With X-Style Interceptors)
+  // 🛠️ ১. স্ট্যাবল এপিআই ইনস্ট্যান্স
   const api = useMemo(() => {
     const instance = axios.create({
-      baseURL: API_URL,
-      headers: { 'Content-Type': 'application/json' }
+      baseURL: API_BASE_URL,
     });
 
-    // Request Interceptor: প্রতিটি কল-এ অটো টোকেন যোগ করবে
     instance.interceptors.request.use((config) => {
       const token = localStorage.getItem('token');
       if (token) {
@@ -26,62 +24,48 @@ export const AuthProvider = ({ children }) => {
       return config;
     });
 
-    // Response Interceptor: ৪০১ এরর (Unauthorized) পেলে সেশন টার্মিনেট করবে
-    instance.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          localStorage.removeItem('token');
-          setUser(null);
-          // লুপ ঠেকানোর জন্য শুধু ল্যান্ডিং পেজে না থাকলে রিডাইরেক্ট করবে
-          if (window.location.pathname !== '/') {
-            window.location.href = '/';
-          }
-        }
-        return Promise.reject(error);
-      }
-    );
-
     return instance;
   }, []);
 
-  // 🛠️ 2. internal Helper: Session Cleanup
+  // 🛠️ ২. ইমেজ/ভিডিও ইউআরএল জেনারেটর (নতুন ফাংশন যা আপনি পুরো অ্যাপে পাবেন)
+  const getFullAssetUrl = useCallback((path) => {
+    if (!path) return null;
+    if (path.startsWith('http')) return path; // যদি অলরেডি ফুল ইউআরএল থাকে (Cloudinary/Google)
+    
+    // API_URL থেকে /api বাদ দিয়ে মেইন সার্ভার ইউআরএল বের করা
+    const serverUrl = API_BASE_URL.replace('/api', '');
+    return `${serverUrl}/${path.replace(/\\/g, '/')}`;
+  }, []);
+
   const handleLogoutData = useCallback(() => {
     localStorage.removeItem('token');
     setUser(null);
   }, []);
 
-  // 🛠️ 3. Neural Session Recovery (App Booting)
+  // 🛠️ ৩. ইনিশিয়াল অথ চেক
   useEffect(() => {
     let isMounted = true;
-
     const initAuth = async () => {
       const token = localStorage.getItem('token');
-      
       if (!token) {
         if (isMounted) setLoading(false);
         return;
       }
-
       try {
-        // ইউজার ডাটা রিকভারি
         const res = await api.get('/auth/me'); 
         if (isMounted) {
           setUser(res.data.user || res.data);
         }
       } catch (err) {
-        console.error("❌ Session Sync Failed");
         if (isMounted) handleLogoutData();
       } finally {
         if (isMounted) setLoading(false);
       }
     };
-    
     initAuth();
     return () => { isMounted = false; };
   }, [api, handleLogoutData]);
 
-  // 🛠️ 4. Auth Methods (Login, Signup, Google)
   const googleLogin = useCallback(async (googleCredential) => {
     try {
       const res = await api.post('/auth/google', { token: googleCredential });
@@ -121,19 +105,12 @@ export const AuthProvider = ({ children }) => {
     }
   }, [api]);
 
-  // 🛠️ 5. Manual Context Updates (Profile Edit এর জন্য)
-  const setAuthData = useCallback((userData, token) => {
-    if (token) localStorage.setItem('token', token);
-    setUser(userData);
-  }, []);
-
-  // 🛠️ 6. Termination (Logout)
   const logout = useCallback(() => {
     handleLogoutData();
     window.location.href = '/'; 
   }, [handleLogoutData]);
 
-  // 🚀 Final Memoized Value (X-Performance Optimized)
+  // 🛠️ কনটেক্সট ভ্যালু মেমোইজেশন
   const value = useMemo(() => ({
     user,
     loading,
@@ -141,10 +118,10 @@ export const AuthProvider = ({ children }) => {
     signup,
     googleLogin,
     logout,
-    setAuthData,
     isAuthenticated: !!user,
-    api 
-  }), [user, loading, api, login, signup, googleLogin, logout, setAuthData]);
+    api,
+    getFullAssetUrl // 👈 এটি এখন যেকোনো কম্পোনেন্ট থেকে ব্যবহার করতে পারবেন
+  }), [user, loading, api, login, signup, googleLogin, logout, getFullAssetUrl]);
 
   return (
     <AuthContext.Provider value={value}>
@@ -153,11 +130,8 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Custom Hook: useAuth() দিয়ে সব পেজে ডাটা এক্সেস করুন
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
+  if (!context) throw new Error("useAuth must be used within an AuthProvider");
   return context;
 };
