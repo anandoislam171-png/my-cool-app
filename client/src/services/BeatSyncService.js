@@ -1,49 +1,88 @@
-export const detectBeats = async (audioUrl) => {
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const response = await fetch(audioUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-  
-  const channelData = audioBuffer.getChannelData(0);
-  const sampleRate = audioBuffer.sampleRate;
-  
-  // বিট ডিটেকশন অ্যালগরিদম (Peak Detection)
-  const peaks = [];
-  const threshold = 0.8; // বিট সেন্সিটিভিটি
-  const interval = sampleRate * 0.25; // দুটি বিটের মধ্যে ন্যূনতম দূরত্ব (০.২৫ সেকেন্ড)
+/* ==========================================================
+    Onyx Drift - Beat Sync Engine (Audio Analysis)
+========================================================== */
 
-  for (let i = 0; i < channelData.length; i += 1024) {
-    const volume = Math.abs(channelData[i]);
-    if (volume > threshold) {
+/**
+ * ১. Peak Detection Algorithm (দ্রুত বিট ডিটেকশন)
+ * এই ফাংশনটি অডিওর ভলিউম স্পাইকগুলো খুঁজে বের করে।
+ */
+export const detectBeats = async (audioUrl) => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) throw new Error("AudioContext not supported");
+
+    const audioCtx = new AudioContext();
+    const response = await fetch(audioUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    
+    const channelData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    
+    const peaks = [];
+    const threshold = 0.8; // বিট সেন্সিটিভিটি (কমলে আরও বেশি বিট ধরবে)
+    const minInterval = 0.25; // দুটি বিটের মধ্যে ন্যূনতম দূরত্ব (সেকেন্ডে)
+
+    for (let i = 0; i < channelData.length; i += 1024) {
+      const volume = Math.abs(channelData[i]);
       const time = i / sampleRate;
-      if (peaks.length === 0 || time - peaks[peaks.length - 1] > 0.25) {
-        peaks.push(time);
+
+      if (volume > threshold) {
+        if (peaks.length === 0 || time - peaks[peaks.length - 1] > minInterval) {
+          peaks.push(Number(time.toFixed(2))); // ২ দশমিক পর্যন্ত সময় রাখা হচ্ছে
+        }
       }
     }
+
+    // কাজ শেষ হলে AudioContext বন্ধ করা ভালো (মেমোরি সেভ হবে)
+    await audioCtx.close();
+    return peaks; 
+
+  } catch (error) {
+    console.error("Beat Detection Error:", error);
+    return [];
   }
-// লজিক: অডিওর ভলিউম স্পাইক বা বিট ডিটেক্ট করা
-export const getBeatTimestamps = async (audioUrl) => {
-  const audioContext = new AudioContext();
-  const response = await fetch(audioUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  
-  const rawData = audioBuffer.getChannelData(0);
-  const samples = 44100; // 1 second
-  const beats = [];
-  
-  // প্রতি ১ সেকেন্ডে মিউজিকের তীব্রতা অ্যানালাইসিস
-  for (let i = 0; i < rawData.length; i += samples) {
-    let sum = 0;
-    for (let j = 0; j < samples; j++) {
-      sum += Math.abs(rawData[i + j]);
-    }
-    if (sum / samples > 0.15) { // Threshold
-      beats.push(i / samples);
-    }
-  }
-  return beats;
 };
 
-  return peaks; // বিটের সময়ের লিস্ট: [0.5, 1.2, 1.8, ...]
+/**
+ * ২. Intensity Analysis (প্রতি সেকেন্ডে মিউজিকের তীব্রতা)
+ * এটি ভিডিও এডিটিং বা ব্যাকগ্রাউন্ড অ্যানিমেশনের জন্য দারুণ।
+ */
+export const getBeatTimestamps = async (audioUrl) => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioContext = new AudioContext();
+    
+    const response = await fetch(audioUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    
+    const rawData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const beats = [];
+    
+    // প্রতি ১ সেকেন্ড অন্তর অ্যানালাইসিস
+    for (let i = 0; i < rawData.length; i += sampleRate) {
+      let sum = 0;
+      let count = 0;
+
+      // ১ সেকেন্ডের ডেটা লুপ করা
+      for (let j = 0; j < sampleRate && (i + j) < rawData.length; j++) {
+        sum += Math.abs(rawData[i + j]);
+        count++;
+      }
+
+      const averageIntensity = sum / count;
+      if (averageIntensity > 0.15) { // Threshold
+        beats.push(Number((i / sampleRate).toFixed(2)));
+      }
+    }
+
+    await audioContext.close();
+    return beats;
+
+  } catch (error) {
+    console.error("Intensity Analysis Error:", error);
+    return [];
+  }
 };

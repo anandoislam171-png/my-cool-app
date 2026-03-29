@@ -13,15 +13,36 @@ export const AuthProvider = ({ children }) => {
   const api = useMemo(() => {
     const instance = axios.create({
       baseURL: API_URL,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
 
+    // রিকোয়েস্ট ইন্টারসেপ্টর: টোকেন হেডার সেট করবে
     instance.interceptors.request.use((config) => {
       const token = localStorage.getItem('token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
       return config;
+    }, (error) => {
+      return Promise.reject(error);
     });
+
+    // রেসপন্স ইন্টারসেপ্টর: ৪০১ (Unauthorized) আসলে অটো লগআউট
+    instance.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        // যদি ৪০১ এরর আসে এবং টোকেন থেকে থাকে, তবেই ক্লিনআপ করবে
+        if (error.response && error.response.status === 401) {
+          console.warn("Unauthorized! Clearing session...");
+          localStorage.removeItem('token');
+          setUser(null);
+          // ৪৩১ এরর এড়াতে এখানে উইন্ডো রিলোড দেওয়া হয়নি
+        }
+        return Promise.reject(error);
+      }
+    );
 
     return instance;
   }, []);
@@ -47,15 +68,13 @@ export const AuthProvider = ({ children }) => {
       try {
         const res = await api.get('/auth/me'); 
         if (isMounted) {
-          setUser(res.data.user || res.data);
+          // সার্ভার রেসপন্স চেক: res.data.user অথবা res.data
+          const userData = res.data.user || res.data;
+          setUser(userData);
         }
       } catch (err) {
-        console.error("❌ Neural Session Expired");
-        // সেশন ফেইল করলে শুধু ডাটা ক্লিন করুন, setLoading(false) finally ব্লকে হবে
-        if (isMounted) {
-          localStorage.removeItem('token');
-          setUser(null);
-        }
+        console.error("❌ Neural Session Expired or Network Error");
+        if (isMounted) handleLogoutData();
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -63,16 +82,17 @@ export const AuthProvider = ({ children }) => {
     
     initAuth();
     return () => { isMounted = false; };
-  }, [api]); // handleLogoutData এখানে দেওয়ার দরকার নেই, লুপ হতে পারে
+  }, [api, handleLogoutData]);
 
   // 🛠️ ৪. গুগল লগইন মেথড
   const googleLogin = useCallback(async (googleCredential) => {
     try {
       const res = await api.post('/auth/google', { token: googleCredential });
-      if (res.data.token) {
-        localStorage.setItem('token', res.data.token);
-        setUser(res.data.user);
-        return res.data;
+      const data = res.data;
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        setUser(data.user || data);
+        return data;
       }
     } catch (err) {
       throw err.response?.data?.message || "Google Authentication Failed";
@@ -85,7 +105,7 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/register', formData);
       if (res.data.token) {
         localStorage.setItem('token', res.data.token);
-        setUser(res.data.user);
+        setUser(res.data.user || res.data);
       }
       return res.data;
     } catch (err) {
@@ -98,7 +118,7 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post('/auth/login', { email, password });
       if (res.data.token) {
         localStorage.setItem('token', res.data.token);
-        setUser(res.data.user);
+        setUser(res.data.user || res.data);
       }
       return res.data;
     } catch (err) {
@@ -108,7 +128,7 @@ export const AuthProvider = ({ children }) => {
 
   // 🛠️ ৬. ম্যানুয়াল অথ ডাটা সেট
   const setAuthData = useCallback((userData, token) => {
-    localStorage.setItem('token', token);
+    if (token) localStorage.setItem('token', token);
     setUser(userData);
   }, []);
 
@@ -133,12 +153,12 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
-// কাস্টম হুক এক্সপোর্ট
+// কাস্টম হুক
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {

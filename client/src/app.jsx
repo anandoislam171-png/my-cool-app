@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useContext } from "react";
+import React, { Suspense, useContext } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { Toaster } from 'react-hot-toast';
 import { AuthContext } from './context/AuthContext';
@@ -8,24 +8,20 @@ import Sidebar from "./components/Sidebar";
 import CustomCursor from "./components/CustomCursor";
 import MobileNav from "./components/MobileNav";
 
-// Lazy-loaded Pages
-const Messenger = lazy(() => import("./pages/Messenger"));
-const PremiumHomeFeed = lazy(() => import("./pages/PremiumHomeFeed"));
-const ProfilePage = lazy(() => import("./pages/Profile.jsx"));
-const Settings = lazy(() => import("./pages/Settings")); 
-const ReelsFeed = lazy(() => import("./pages/ReelsFeed"));
-const Landing = lazy(() => import("./pages/Landing"));
-const JoinPage = lazy(() => import("./pages/JoinPage"));
-const CallPage = lazy(() => import("./pages/CallPage"));
-
-// Temporary Neural Components
-const Analytics = () => <div className="p-10 text-cyan-500 font-mono uppercase tracking-widest animate-pulse">Neural_Analytics_v1.0</div>;
-const Explore = () => <div className="p-10 text-cyan-500 font-mono uppercase tracking-widest animate-pulse">Scanning_Global_Grid...</div>;
-const CreatePost = () => <div className="p-10 text-cyan-500 font-mono uppercase tracking-widest animate-pulse">Initializing_Neural_Synthesizer...</div>;
+// Pages
+import PremiumHomeFeed from "./pages/PremiumHomeFeed";
+import Messenger from "./pages/Messenger";
+import ProfilePage from "./pages/Profile.jsx";
+import Settings from "./pages/Settings";
+import ReelsFeed from "./pages/ReelsFeed";
+import Landing from "./pages/Landing";
+import JoinPage from "./pages/JoinPage";
+import CallPage from "./pages/CallPage";
+import FollowingPage from "./pages/FollowingPage"; 
+import ReelsEditor from "./pages/ReelsEditor"; // ইমপোর্ট করা হয়েছে
 
 /**
  * 🔐 প্রোটেক্টড রুট গার্ড
- * replace: true ব্যবহার করা হয়েছে যাতে ব্যাক বাটনে লুপ না হয়।
  */
 const Protected = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
@@ -38,104 +34,103 @@ const Protected = ({ children }) => {
     : <Navigate to="/" state={{ from: location }} replace />;
 };
 
-/**
- * মেইন কন্টেন্ট কম্পোনেন্ট
- */
 function AppContent() {
   const location = useLocation();
   const { user, loading } = useContext(AuthContext);
 
-  // ১. গ্লোবাল বুটিং স্ক্রিন (Neural Loading)
+  // ইনিশিয়াল লোডিং স্টেট
   if (loading) {
     return (
       <div className="h-screen bg-[#020617] flex flex-col items-center justify-center gap-6 text-cyan-500 font-mono tracking-[0.5em] uppercase">
         <div className="relative">
-           <div className="w-16 h-16 border-2 border-cyan-500/10 border-t-cyan-500 rounded-full animate-spin" />
+           <div className="w-20 h-20 border-2 border-cyan-500/5 border-t-cyan-500 rounded-full animate-spin" />
            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-ping" />
+              <div className="w-2 h-2 bg-cyan-500 rounded-full animate-ping shadow-[0_0_15px_#06b6d4]" />
            </div>
         </div>
-        <span className="text-[10px] animate-pulse">Booting_Neural_Interface...</span>
+        <span className="text-[10px] font-black animate-pulse">Initializing_Neural_Network...</span>
       </div>
     );
   }
 
-  // ২. নেভিগেশন দেখানোর শর্ত (Landing এবং Join পেজে সাইডবার থাকবে না)
-  const isFullWidthPage = ["/", "/join"].includes(location.pathname);
-  const showNav = !isFullWidthPage && user;
+  const isAuthPage = ["/", "/join"].includes(location.pathname);
+  const showNav = user && !isAuthPage;
 
   return (
-    <div className="min-h-screen bg-[#020617] text-gray-200 selection:bg-cyan-500/30 overflow-x-hidden relative">
+    <div className="min-h-screen bg-[#020617] text-gray-200 selection:bg-cyan-500/30 overflow-x-hidden relative font-sans">
       <Toaster 
         position="top-right" 
-        toastOptions={{
-          duration: 3000,
+        toastOptions={{ 
+          duration: 3000, 
           style: { 
             background: '#0a0a0a', 
             color: '#06b6d4', 
-            border: '1px solid rgba(6,182,212,0.2)',
-            fontFamily: 'monospace',
-            fontSize: '12px'
-          }
+            border: '1px solid rgba(6,182,212,0.1)', 
+            fontFamily: 'monospace', 
+            fontSize: '11px', 
+            borderRadius: '12px' 
+          } 
         }} 
       />
-      
       <CustomCursor />
 
+      {/* ব্র্যান্ডিং গ্লো ডেকোরেশন */}
+      <div className="fixed top-0 left-0 w-full h-full pointer-events-none opacity-20 bg-[radial-gradient(circle_at_50%_-20%,_#06b6d4_0%,_transparent_60%)] z-0" />
+
       <div className="flex w-full min-h-screen relative">
-        
-        {/* ডেস্কটপ সাইডবার */}
         {showNav && (
-          <aside className="hidden md:block fixed left-0 top-0 h-full w-64 z-40 bg-[#020617]/90 backdrop-blur-xl border-r border-cyan-900/10 shadow-[20px_0_50px_rgba(0,0,0,0.8)]">
+          <aside className="hidden md:block fixed left-0 top-0 h-full w-64 z-[100] bg-black/40 backdrop-blur-3xl border-r border-white/5">
             <Sidebar />
           </aside>
         )}
 
-        {/* মোবাইল নেভিগেশন */}
-        {showNav && <MobileNav />}
-
-        {/* মেইন কন্টেন্ট এরিয়া */}
-        <main className={`flex-1 min-h-screen transition-all duration-700 ease-in-out ${showNav ? 'md:pl-64 pb-20 md:pb-0' : ''} relative z-10`}>
+        <main className={`flex-1 min-h-screen relative z-10 transition-all duration-500 ${showNav ? 'md:pl-64' : ''}`}>
           <Suspense fallback={
-            <div className="h-full w-full min-h-[80vh] flex flex-col items-center justify-center text-cyan-500/40 animate-pulse font-mono tracking-widest uppercase gap-4">
-              <div className="w-12 h-[1px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent" />
+            <div className="h-full w-full min-h-[80vh] flex flex-col items-center justify-center text-cyan-500/40 animate-pulse font-mono tracking-[0.4em] uppercase gap-4">
+              <div className="w-16 h-[1px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent" />
               <span className="text-[9px]">Syncing_Neural_Link...</span>
             </div>
           }>
-            <Routes>
-              {/* ৩. পাবলিক রুটস (লগইন থাকলে অটো ফিডে পাঠাবে) */}
-              <Route path="/" element={user ? <Navigate to="/feed" replace /> : <Landing />} />
-              <Route path="/join" element={user ? <Navigate to="/feed" replace /> : <JoinPage />} />
-              
-              {/* ৪. প্রোটেক্টড রুটস */}
-              <Route path="/feed" element={<Protected><PremiumHomeFeed /></Protected>} />
-              <Route path="/reels" element={<Protected><ReelsFeed /></Protected>} />
-              <Route path="/following" element={<Protected><PremiumHomeFeed filter="following" /></Protected>} />
-              <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
-              <Route path="/messages" element={<Protected><Messenger /></Protected>} />
-              <Route path="/explorer" element={<Protected><Explore /></Protected>} />
-              <Route path="/create" element={<Protected><CreatePost /></Protected>} />
-              <Route path="/profile/:username" element={<Protected><ProfilePage /></Protected>} />
-              <Route path="/settings" element={<Protected><Settings /></Protected>} />
-              <Route path="/call/:roomId" element={<Protected><CallPage /></Protected>} />
-              
-              {/* ৫. ফালব্যাক (Catch-all) রুট */}
-              <Route path="*" element={<Navigate to={user ? "/feed" : "/"} replace />} />
-            </Routes>
+            <div className="w-full h-full">
+              <Routes>
+                {/* ১. পাবলিক রুটস */}
+                <Route path="/" element={user ? <Navigate to="/feed" replace /> : <Landing />} />
+                <Route path="/join" element={user ? <Navigate to="/feed" replace /> : <JoinPage />} />
+                
+                {/* ২. প্রোটেক্টড রুটস */}
+                <Route path="/feed" element={<Protected><PremiumHomeFeed /></Protected>} />
+                <Route path="/reels" element={<Protected><ReelsFeed /></Protected>} />
+                
+                {/* রিলস এডিটর রাউট (id সহ এবং id ছাড়া) */}
+                <Route path="/reels-editor" element={<Protected><ReelsEditor /></Protected>} />
+                <Route path="/reels-editor/:id" element={<Protected><ReelsEditor /></Protected>} />
+                
+                <Route path="/following" element={<Protected><FollowingPage /></Protected>} />
+                <Route path="/profile/:id" element={<Protected><ProfilePage /></Protected>} />
+                <Route path="/messages" element={<Protected><Messenger /></Protected>} />
+                <Route path="/settings" element={<Protected><Settings /></Protected>} />
+                <Route path="/call/:roomId" element={<Protected><CallPage /></Protected>} />
+                
+                {/* ৩. ফালব্যাক রুট */}
+                <Route path="*" element={<Navigate to={user ? "/feed" : "/"} replace />} />
+              </Routes>
+            </div>
           </Suspense>
+
+          {/* মোবাইল নেভিগেশন */}
+          {showNav && (
+            <div className="md:hidden fixed bottom-0 left-0 w-full z-[1000]">
+               <MobileNav />
+            </div>
+          )}
         </main>
       </div>
 
-      {/* ব্র্যান্ডিং ডেকোরেশন (Neural Glow) */}
-      <div className="fixed top-0 left-0 w-full h-full pointer-events-none opacity-10 bg-[radial-gradient(circle_at_50%_-20%,_#06b6d4_0%,_transparent_60%)] z-0" />
-      <div className="fixed bottom-0 right-0 w-[500px] h-[500px] pointer-events-none opacity-[0.03] bg-cyan-500 blur-[120px] rounded-full z-0" />
+      <div className="fixed bottom-[-100px] right-[-100px] w-[500px] h-[500px] pointer-events-none opacity-[0.05] bg-cyan-500 blur-[150px] rounded-full z-0" />
     </div>
   );
 }
 
-/**
- * রুট অ্যাপ কম্পোনেন্ট
- */
 export default function App() {
   return (
     <BrowserRouter>

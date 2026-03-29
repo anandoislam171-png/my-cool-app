@@ -7,14 +7,12 @@ import {
 } from 'react-icons/fa'; 
 import { HiOutlineMenuAlt4 } from "react-icons/hi"; 
 import { useNavigate } from 'react-router-dom';
-import { useAuth0 } from "@auth0/auth0-react";
-import axios from 'axios';
+import { useAuth } from '../context/AuthContext'; 
 
 const Navbar = ({ setIsPostModalOpen, toggleSidebar, socket }) => { 
   const navigate = useNavigate();
-  const { user, logout, getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { user, logout, api, isAuthenticated } = useAuth(); 
   
-  // States
   const [showDropdown, setShowDropdown] = useState(false);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [localSearch, setLocalSearch] = useState("");
@@ -24,12 +22,7 @@ const Navbar = ({ setIsPostModalOpen, toggleSidebar, socket }) => {
   const [hasNewNotification, setHasNewNotification] = useState(false);
   const [isGlobalMuted, setIsGlobalMuted] = useState(true);
 
-  const API_URL = "https://my-cool-app-cvm7.onrender.com";
-  const API_AUDIENCE = "https://onyx-drift-api";
-
-  /**
-   * ১. সার্চ লজিক (Debounced Search) - Fixed Route
-   */
+  // সার্চ লজিক
   useEffect(() => {
     const fetchResults = async () => {
       if (localSearch.trim().length < 2) {
@@ -39,82 +32,52 @@ const Navbar = ({ setIsPostModalOpen, toggleSidebar, socket }) => {
       }
       try {
         setLoading(true);
-        const token = await getAccessTokenSilently({
-          authorizationParams: { audience: API_AUDIENCE }
-        });
-        
-        // FIXED: Route changed from /user/search to /users/search
-        const res = await axios.get(`${API_URL}/api/users/search`, {
-          params: { q: localSearch }, // ব্যাকএন্ড সাধারণত 'q' বা 'query' প্রত্যাশা করে
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
+        const res = await api.get('/users/search', { params: { q: localSearch } });
         setSearchResults(res.data);
         setShowResults(true);
       } catch (err) {
-        console.error("🔍 Search failed (Neural Link Broken):", err.response?.data || err.message);
+        console.error("🔍 Search failed:", err.message);
       } finally {
         setLoading(false);
       }
     };
-
     const delayDebounceFn = setTimeout(fetchResults, 500);
     return () => clearTimeout(delayDebounceFn);
-  }, [localSearch, getAccessTokenSilently]);
-
-  /**
-   * ২. নোটিফিকেশন লজিক
-   */
-  useEffect(() => {
-    const s = socket?.current || socket; 
-    if (s && isAuthenticated) {
-      const handleNotification = () => setHasNewNotification(true);
-      s.on("getNotification", handleNotification);
-      
-      return () => {
-        s.off("getNotification", handleNotification);
-      };
-    }
-  }, [socket, isAuthenticated]);
+  }, [localSearch, api]);
 
   return (
-    <nav className="w-full h-[60px] bg-[#030303]/90 backdrop-blur-xl border-b border-white/[0.05] z-[1000] flex items-center justify-between px-4 lg:px-8 sticky top-0">
+    // 'sticky top-0' এবং 'z-[1000]' নিশ্চিত করে এটি সবার উপরে থাকবে
+    <nav className="w-full h-[64px] bg-[#020617]/80 backdrop-blur-2xl border-b border-white/[0.05] z-[1000] flex items-center justify-between px-4 lg:px-8 sticky top-0 font-sans shadow-2xl">
       
-      {/* Left Section */}
-      <div className="flex items-center gap-3">
-        <button 
-          onClick={(e) => {
-            e.stopPropagation();
-            if(toggleSidebar) toggleSidebar();
-          }}
-          className="p-2 hover:bg-white/5 rounded-full transition-colors lg:hidden"
-        >
-          <HiOutlineMenuAlt4 size={22} className="text-gray-400 hover:text-cyan-400" />
+      {/* Left: Logo */}
+      <div className="flex items-center gap-4">
+        <button onClick={toggleSidebar} className="p-2 hover:bg-white/5 rounded-xl lg:hidden transition-all">
+          <HiOutlineMenuAlt4 size={20} className="text-cyan-400" />
         </button>
         
-        <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/feed')}>
-          <div className="w-8 h-8 bg-gradient-to-tr from-cyan-400 to-purple-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <span className="text-black font-black text-xs italic tracking-tighter">OX</span>
+        <div className="flex items-center gap-2.5 cursor-pointer group" onClick={() => navigate('/feed')}>
+          <div className="w-9 h-9 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)] group-hover:scale-105 transition-transform">
+            <span className="text-black font-black text-xs italic">OX</span>
           </div>
-          <h1 className="text-lg font-black text-white italic tracking-tighter uppercase hidden sm:block">
-            ONYX<span className="text-cyan-500">DRIFT</span>
-          </h1>
+          <div className="hidden sm:block">
+            <h1 className="text-sm font-black text-white italic tracking-tighter uppercase leading-none">
+              ONYX<span className="text-cyan-500">DRIFT</span>
+            </h1>
+            <span className="text-[7px] text-cyan-500/50 font-mono tracking-[0.3em]">NEURAL_INTERFACE</span>
+          </div>
         </div>
       </div>
 
-      {/* Center Section: Search Bar */}
-      <div className="flex-1 max-w-[400px] mx-4 relative">
+      {/* Center: Search */}
+      <div className="flex-1 max-w-[460px] mx-6 relative">
         <div className="relative group">
-          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-            <FaSearch size={12} className={`${loading ? 'animate-spin text-cyan-500' : 'text-gray-500'}`} />
-          </div>
+          <FaSearch size={11} className={`absolute left-4 top-1/2 -translate-y-1/2 ${loading ? 'animate-spin text-cyan-500' : 'text-zinc-500'}`} />
           <input 
             type="text"
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
-            onFocus={() => localSearch.length > 0 && setShowResults(true)}
-            placeholder="Scan Identity..."
-            className="w-full bg-white/5 border border-white/10 rounded-full py-2 pl-10 pr-4 text-[10px] text-white font-black uppercase tracking-widest outline-none focus:border-cyan-500/50 focus:bg-white/10 transition-all placeholder:text-gray-600"
+            placeholder="SCAN NEURAL ID..."
+            className="w-full bg-white/[0.03] border border-white/10 rounded-xl py-2.5 pl-11 pr-4 text-[10px] text-white font-bold uppercase tracking-widest outline-none focus:border-cyan-500/40 focus:bg-white/[0.07] transition-all"
           />
         </div>
 
@@ -122,35 +85,27 @@ const Navbar = ({ setIsPostModalOpen, toggleSidebar, socket }) => {
         <AnimatePresence>
           {showResults && (
             <>
-              <div className="fixed inset-0 z-[10]" onClick={() => setShowResults(false)}></div>
+              <div className="fixed inset-0 z-[-1]" onClick={() => setShowResults(false)}></div>
               <motion.div 
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                className="absolute top-full left-0 right-0 mt-2 bg-[#0A0A0A] border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100]"
+                className="absolute top-full left-0 right-0 mt-2 bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden backdrop-blur-3xl"
               >
                 {searchResults.length > 0 ? (
                   searchResults.map((result) => (
-                    <div 
-                      key={result.auth0Id || result._id}
-                      onClick={() => {
-                        navigate(`/profile/${result.auth0Id}`);
-                        setShowResults(false);
-                        setLocalSearch("");
-                      }}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 cursor-pointer transition-all border-b border-white/[0.03] last:border-0"
+                    <div key={result._id} onClick={() => { navigate(`/profile/${result.username}`); setShowResults(false); }}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 cursor-pointer border-b border-white/[0.03] last:border-0"
                     >
-                      <img src={result.picture || result.avatar} className="w-8 h-8 rounded-full border border-white/10 object-cover" alt="" />
+                      <img src={result.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${result.username}`} className="w-8 h-8 rounded-lg border border-white/10" alt="" />
                       <div className="flex flex-col">
-                        <span className="text-white text-[10px] font-black uppercase tracking-tighter flex items-center gap-1">
-                          {result.name} {result.isVerified && <FaUserCheck className="text-cyan-500" size={8} />}
+                        <span className="text-white text-[10px] font-black uppercase tracking-tight flex items-center gap-1">
+                          {result.displayName || result.name} {result.isVerified && <FaUserCheck className="text-cyan-500" size={9} />}
                         </span>
-                        <span className="text-gray-500 text-[8px] font-bold">@{result.username || 'drifter'}</span>
+                        <span className="text-cyan-500/50 text-[8px]">@{result.username}</span>
                       </div>
                     </div>
                   ))
-                ) : localSearch.length > 1 && !loading && (
-                   <div className="px-4 py-6 text-center text-gray-500 text-[10px] uppercase font-bold tracking-widest">
-                     Identity Not Found
-                   </div>
+                ) : (
+                  <div className="py-8 text-center text-zinc-600 text-[9px] uppercase font-black tracking-widest">NO_SIGNALS_FOUND</div>
                 )}
               </motion.div>
             </>
@@ -158,92 +113,58 @@ const Navbar = ({ setIsPostModalOpen, toggleSidebar, socket }) => {
         </AnimatePresence>
       </div>
 
-      {/* Right Section */}
-      <div className="flex items-center gap-3 lg:gap-6">
-        <button 
-          onClick={() => setIsGlobalMuted(!isGlobalMuted)}
-          className="hidden md:flex p-2 bg-white/5 rounded-full border border-white/10 text-gray-400 hover:text-cyan-400 transition-all"
-        >
-          {isGlobalMuted ? <FaVolumeMute size={16} /> : <FaVolumeUp size={16} />}
-        </button>
-
+      {/* Right: Actions */}
+      <div className="flex items-center gap-4">
+        {/* Create Button */}
         <div className="relative">
-          <button 
-            onClick={() => setShowPlusMenu(!showPlusMenu)}
-            className="w-8 h-8 lg:w-9 lg:h-9 rounded-full bg-cyan-500 flex items-center justify-center text-black hover:scale-110 transition-all shadow-lg shadow-cyan-500/20"
+          <button onClick={() => setShowPlusMenu(!showPlusMenu)}
+            className="w-10 h-10 rounded-xl bg-cyan-500 flex items-center justify-center text-black hover:shadow-[0_0_25px_rgba(6,182,212,0.4)] transition-all"
           >
-            <FaPlus size={14} className={`${showPlusMenu ? 'rotate-45' : 'rotate-0'} transition-transform duration-300`} />
+            <FaPlus size={14} className={`${showPlusMenu ? 'rotate-45' : ''} transition-transform`} />
           </button>
-
+          
           <AnimatePresence>
             {showPlusMenu && (
-              <>
-                <div className="fixed inset-0 z-[1001]" onClick={() => setShowPlusMenu(false)}></div>
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                  className="absolute right-0 mt-4 w-52 bg-[#0A0A0A] border border-white/10 rounded-2xl p-2 shadow-2xl z-[1002]"
-                >
-                  {[
-                    { icon: <FaFileAlt />, label: 'Text Post', color: 'text-cyan-400' },
-                    { icon: <FaCamera />, label: 'Neural Photo', color: 'text-purple-400' },
-                    { icon: <FaVideo />, label: 'Drift Reel', color: 'text-emerald-400' },
-                    { icon: <FaBroadcastTower />, label: 'Live Broadcast', color: 'text-rose-500' },
-                  ].map((item, i) => (
-                    <button 
-                      key={i} 
-                      onClick={() => { setIsPostModalOpen(true); setShowPlusMenu(false); }}
-                      className="w-full flex items-center gap-3 px-3 py-3 text-[9px] font-black text-gray-400 hover:text-white hover:bg-white/5 rounded-xl uppercase transition-all text-left"
-                    >
-                      <span className={item.color}>{item.icon}</span> {item.label}
-                    </button>
-                  ))}
-                </motion.div>
-              </>
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+                className="absolute right-0 mt-3 w-48 bg-[#0a0a0a] border border-white/10 rounded-2xl p-2 shadow-2xl"
+              >
+                {['Neural Post', 'Visual Log', 'Drift Reel'].map((label, i) => (
+                  <button key={i} onClick={() => { setIsPostModalOpen(true); setShowPlusMenu(false); }}
+                    className="w-full text-left px-4 py-3 text-[9px] font-black text-zinc-400 hover:text-white hover:bg-white/5 rounded-xl uppercase transition-all"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        <div className="relative cursor-pointer group p-1" onClick={() => { setHasNewNotification(false); navigate('/notifications'); }}>
-          <FaRegBell size={18} className="text-gray-400 group-hover:text-cyan-400 transition-colors" />
-          {hasNewNotification && (
-            <span className="absolute top-1 right-1 w-2 h-2 bg-cyan-500 rounded-full border border-[#030303] animate-pulse"></span>
-          )}
-        </div>
-
+        {/* Profile */}
         <div className="relative">
-          <button onClick={() => setShowDropdown(!showDropdown)} className="flex items-center gap-2 bg-white/5 p-1 lg:pr-3 rounded-full border border-white/10 hover:bg-white/10 transition-all">
-            <img src={user?.picture} className="w-7 h-7 lg:w-8 lg:h-8 rounded-full border border-cyan-500/30 object-cover" alt="" />
-            <span className="hidden lg:block text-[9px] font-black text-white uppercase tracking-widest">
-              {user?.nickname?.substring(0, 8)}
+          <button onClick={() => setShowDropdown(!showDropdown)} className="flex items-center gap-3 bg-white/[0.03] border border-white/10 p-1 pr-3 rounded-xl hover:bg-white/[0.08] transition-all">
+            <img src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.username}`} className="w-8 h-8 rounded-lg object-cover" alt="" />
+            <span className="hidden md:block text-[9px] font-black text-white uppercase tracking-tighter">
+              {user?.username || 'DRIFTER'}
             </span>
           </button>
 
           <AnimatePresence>
             {showDropdown && (
-              <>
-                <div className="fixed inset-0 z-[1001]" onClick={() => setShowDropdown(false)}></div>
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                  className="absolute right-0 mt-3 w-44 bg-[#0A0A0A] border border-white/10 rounded-2xl p-2 shadow-2xl z-[1002]"
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
+                className="absolute right-0 mt-3 w-44 bg-[#0a0a0a] border border-white/10 rounded-2xl p-2 shadow-2xl"
+              >
+                <button onClick={() => { navigate(`/profile/${user?.username}`); setShowDropdown(false); }} 
+                  className="w-full flex items-center gap-3 px-4 py-3 text-[9px] font-black text-zinc-400 hover:text-white hover:bg-white/5 rounded-xl uppercase transition-all"
                 >
-                  <button onClick={() => { navigate(`/profile/${user?.sub}`); setShowDropdown(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-[9px] font-black text-gray-400 hover:text-white hover:bg-white/5 rounded-xl uppercase transition-all text-left">
-                    <FaUserCircle size={14} /> Profile
-                  </button>
-                  <div className="flex items-center justify-around py-2 border-y border-white/5 bg-white/[0.02]">
-                    <div className="flex flex-col items-center">
-                      <FaEye size={10} className="text-gray-500" />
-                      <span className="text-[8px] text-gray-400 font-bold">1.2k</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <FaShareAlt size={10} className="text-gray-500" />
-                      <span className="text-[8px] text-gray-400 font-bold">45</span>
-                    </div>
-                  </div>
-                  <button onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })} className="w-full flex items-center gap-3 px-4 py-3 text-[9px] font-black text-rose-500 hover:bg-rose-500/10 rounded-xl uppercase transition-all text-left">
-                    <FaSignOutAlt size={14} /> Log Out
-                  </button>
-                </motion.div>
-              </>
+                  <FaUserCircle className="text-cyan-500" /> Profile
+                </button>
+                <button onClick={logout} 
+                  className="w-full flex items-center gap-3 px-4 py-3 text-[9px] font-black text-rose-500 hover:bg-rose-500/10 rounded-xl uppercase transition-all"
+                >
+                  <FaSignOutAlt /> Terminate
+                </button>
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
