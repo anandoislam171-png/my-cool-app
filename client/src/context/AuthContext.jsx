@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import axios from 'axios';
 
+// OnyxDrift API Configuration
 const API_URL = "https://my-cool-app-cvm7.onrender.com/api";
 
 export const AuthContext = createContext();
@@ -9,12 +10,14 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🛠️ ১. স্ট্যাবল এপিআই ইনস্ট্যান্স (Axios Interceptors সহ)
+  // 🛰️ 1. Neural API Instance (With X-Style Interceptors)
   const api = useMemo(() => {
     const instance = axios.create({
       baseURL: API_URL,
+      headers: { 'Content-Type': 'application/json' }
     });
 
+    // Request Interceptor: প্রতিটি কল-এ অটো টোকেন যোগ করবে
     instance.interceptors.request.use((config) => {
       const token = localStorage.getItem('token');
       if (token) {
@@ -23,16 +26,32 @@ export const AuthProvider = ({ children }) => {
       return config;
     });
 
+    // Response Interceptor: ৪০১ এরর (Unauthorized) পেলে সেশন টার্মিনেট করবে
+    instance.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          localStorage.removeItem('token');
+          setUser(null);
+          // লুপ ঠেকানোর জন্য শুধু ল্যান্ডিং পেজে না থাকলে রিডাইরেক্ট করবে
+          if (window.location.pathname !== '/') {
+            window.location.href = '/';
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
     return instance;
   }, []);
 
-  // 🛠️ ২. ইন্টারনাল হেল্পার: ডাটা ক্লিনআপ (useCallback জরুরি)
+  // 🛠️ 2. internal Helper: Session Cleanup
   const handleLogoutData = useCallback(() => {
     localStorage.removeItem('token');
     setUser(null);
   }, []);
 
-  // 🛠️ ৩. ইনিশিয়াল অথ চেক (Neural Session Recovery)
+  // 🛠️ 3. Neural Session Recovery (App Booting)
   useEffect(() => {
     let isMounted = true;
 
@@ -45,17 +64,14 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
+        // ইউজার ডাটা রিকভারি
         const res = await api.get('/auth/me'); 
         if (isMounted) {
           setUser(res.data.user || res.data);
         }
       } catch (err) {
-        console.error("❌ Neural Session Expired");
-        // সেশন ফেইল করলে শুধু ডাটা ক্লিন করুন, setLoading(false) finally ব্লকে হবে
-        if (isMounted) {
-          localStorage.removeItem('token');
-          setUser(null);
-        }
+        console.error("❌ Session Sync Failed");
+        if (isMounted) handleLogoutData();
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -63,9 +79,9 @@ export const AuthProvider = ({ children }) => {
     
     initAuth();
     return () => { isMounted = false; };
-  }, [api]); // handleLogoutData এখানে দেওয়ার দরকার নেই, লুপ হতে পারে
+  }, [api, handleLogoutData]);
 
-  // 🛠️ ৪. গুগল লগইন মেথড
+  // 🛠️ 4. Auth Methods (Login, Signup, Google)
   const googleLogin = useCallback(async (googleCredential) => {
     try {
       const res = await api.post('/auth/google', { token: googleCredential });
@@ -79,7 +95,6 @@ export const AuthProvider = ({ children }) => {
     }
   }, [api]);
 
-  // 🛠️ ৫. সাইনআপ ও লগইন মেথড
   const signup = useCallback(async (formData) => {
     try {
       const res = await api.post('/auth/register', formData);
@@ -106,19 +121,19 @@ export const AuthProvider = ({ children }) => {
     }
   }, [api]);
 
-  // 🛠️ ৬. ম্যানুয়াল অথ ডাটা সেট
+  // 🛠️ 5. Manual Context Updates (Profile Edit এর জন্য)
   const setAuthData = useCallback((userData, token) => {
-    localStorage.setItem('token', token);
+    if (token) localStorage.setItem('token', token);
     setUser(userData);
   }, []);
 
-  // 🛠️ ৭. লগআউট (Neural Session Termination)
+  // 🛠️ 6. Termination (Logout)
   const logout = useCallback(() => {
     handleLogoutData();
     window.location.href = '/'; 
   }, [handleLogoutData]);
 
-  // 🛠️ কনটেক্সট ভ্যালু মেমোইজেশন
+  // 🚀 Final Memoized Value (X-Performance Optimized)
   const value = useMemo(() => ({
     user,
     loading,
@@ -138,7 +153,7 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// কাস্টম হুক এক্সপোর্ট
+// Custom Hook: useAuth() দিয়ে সব পেজে ডাটা এক্সেস করুন
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
