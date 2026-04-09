@@ -2,13 +2,87 @@ import React, { useEffect, useState, useMemo, useCallback, useContext, useRef } 
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FaHeart, FaRegHeart, FaSearch, FaRegComment, 
-  FaRetweet, FaShare, FaImage, FaTimes, FaGlobeAmericas, FaSmile 
+  FaShare, FaImage, FaTimes, FaSmile,
+  FaVolumeUp, FaVolumeMute
 } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
 import toast from "react-hot-toast";
 import { AuthContext } from '../context/AuthContext';
 
-// --- ১. পোস্ট তৈরি করার কম্পোনেন্ট (Neural Synthesizer) ---
+// গ্লোবাল সাউন্ড স্টেট
+let globalIsMuted = true;
+
+/* ==========================================================
+    ১. স্মার্ট ভিডিও ইঞ্জিন (NeuralVideoPlayer)
+========================================================== */
+const NeuralVideoPlayer = ({ src, poster }) => {
+  const videoRef = useRef(null);
+  const [muted, setMuted] = useState(globalIsMuted);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          videoRef.current?.play().catch(() => {});
+        } else {
+          videoRef.current?.pause();
+        }
+      },
+      { threshold: 0.6 }
+    );
+
+    if (videoRef.current) observer.observe(videoRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+const protect = async (req, res, next) => {
+  let token;
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+    try {
+      token = req.headers.authorization.split(" ")[1];
+      console.log("Received Token:", token); // এটি চেক করুন
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = { id: decoded.id }; 
+      return next();
+    } catch (error) {
+      console.log("JWT Verification Detail:", error.message); // এখানে আসল কারণ দেখা যাবে (যেমন: jwt expired)
+      return res.status(401).json({ error: "Neural Link Severed", message: error.message });
+    }
+  }
+  return res.status(401).json({ error: "Access Denied", message: "No Token Provided" });
+};
+  const toggleMute = (e) => {
+    e.stopPropagation();
+    globalIsMuted = !muted;
+    setMuted(!muted);
+    if (videoRef.current) videoRef.current.muted = globalIsMuted;
+  };
+
+  return (
+    <div className="relative group/video rounded-xl overflow-hidden bg-black border border-white/5">
+      <video
+        ref={videoRef}
+        src={src}
+        poster={poster}
+        muted={muted}
+        loop
+        playsInline
+        className="w-full max-h-[500px] object-contain cursor-pointer"
+        onClick={toggleMute}
+      />
+      <button 
+        onClick={toggleMute}
+        className="absolute bottom-4 right-4 p-2 bg-black/60 backdrop-blur-md rounded-full text-white opacity-0 group-hover/video:opacity-100 transition-opacity"
+      >
+        {muted ? <FaVolumeMute size={14} /> : <FaVolumeUp size={14} className="text-cyan-400" />}
+      </button>
+    </div>
+  );
+};
+
+/* ==========================================================
+    ২. পোস্ট তৈরির কম্পোনেন্ট (Neural Synthesizer)
+========================================================== */
 const CreatePost = ({ onPostCreated, api, user }) => {
   const [text, setText] = useState("");
   const [media, setMedia] = useState(null);
@@ -39,16 +113,14 @@ const CreatePost = ({ onPostCreated, api, user }) => {
 
     try {
       setLoading(true);
-      // ব্যাকএন্ডের router.post("/") এন্ডপয়েন্টে রিকোয়েস্ট যাবে
-      await api.post("/posts", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      // এখানে টোকেনটি অটোমেটিক আপনার 'api' ইন্টারসেপ্টর থেকে যাওয়ার কথা
+      await api.post("/posts", formData);
       toast.success("Signal Transmitted!");
       setText("");
       removeMedia();
       if (onPostCreated) onPostCreated(); 
     } catch (err) {
-      toast.error(err.response?.data?.msg || "Transmission Interrupted");
+      toast.error("Transmission Interrupted");
     } finally {
       setLoading(false);
     }
@@ -87,7 +159,7 @@ const CreatePost = ({ onPostCreated, api, user }) => {
                   <FaTimes size={12} />
                 </button>
                 {media?.type.startsWith("video") ? (
-                  <video src={preview} className="w-full h-auto" controls />
+                  <video src={preview} className="w-full h-auto" muted controls />
                 ) : (
                   <img src={preview} alt="preview" className="w-full h-auto max-h-[450px] object-cover" />
                 )}
@@ -95,26 +167,16 @@ const CreatePost = ({ onPostCreated, api, user }) => {
             )}
           </AnimatePresence>
 
-          <div className="flex items-center gap-1.5 py-3 border-b border-white/[0.05] mb-3">
-            <FaGlobeAmericas className="text-cyan-500" size={12} />
-            <span className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest">Public Neural Access</span>
-          </div>
-
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center mt-4">
             <div className="flex gap-1">
-              <button 
-                onClick={() => fileInputRef.current.click()} 
-                className="p-2.5 rounded-full hover:bg-cyan-500/10 text-cyan-500 transition-all active:scale-90"
-              >
-                <FaImage size={18} />
-              </button>
+              <button onClick={() => fileInputRef.current.click()} className="p-2.5 rounded-full hover:bg-cyan-500/10 text-cyan-500 transition-all active:scale-90"><FaImage size={18} /></button>
               <button className="p-2.5 rounded-full hover:bg-cyan-500/10 text-cyan-500 transition-all opacity-40"><FaSmile size={18} /></button>
               <input type="file" ref={fileInputRef} onChange={handleMediaChange} className="hidden" accept="image/*,video/*" />
             </div>
             <button 
               onClick={handleSubmit}
               disabled={loading || (!text.trim() && !media)}
-              className="bg-cyan-500 text-black px-6 py-1.5 rounded-full font-black text-[13px] uppercase hover:bg-cyan-400 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-[0_0_15px_rgba(6,182,212,0.2)]"
+              className="bg-cyan-500 text-black px-6 py-1.5 rounded-full font-black text-[13px] uppercase hover:bg-cyan-400 disabled:opacity-30 transition-all"
             >
               {loading ? "..." : "Drift"}
             </button>
@@ -125,25 +187,40 @@ const CreatePost = ({ onPostCreated, api, user }) => {
   );
 };
 
-// --- ২. মেইন হোম ফিড কম্পোনেন্ট ---
+/* ==========================================================
+    ৩. মেইন হোম ফিড (PremiumHomeFeed)
+========================================================= */
 const PremiumHomeFeed = ({ searchQuery = "" }) => {
   const navigate = useNavigate();
-  const { user, api, loading: isAuthLoading } = useContext(AuthContext);
+  const { user, api, loading: isAuthLoading, logout } = useContext(AuthContext);
 
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState("Global");
 
+  // ডোমেইন ভিত্তিক মিডিয়া ইউআরএল ফিক্স
+  const getMediaUrl = useCallback((url) => {
+    if (!url) return null;
+    if (url.startsWith('http')) return url;
+    // ব্যাকস্ল্যাশ ফিক্স করা হয়েছে এবং ডোমেইন পাথ ঠিক করা হয়েছে
+    const cleanPath = url.replace(/\\/g, '/');
+    return `https://onyx-drift.com/${cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath}`;
+  }, []);
+
   const fetchPosts = useCallback(async () => {
     if (!user) return;
     try {
       setLoading(true);
-      // ব্যাকএন্ডের রাউট অনুযায়ী সংশোধিত: "/posts/neural-feed"
+      // রিকোয়েস্ট পাঠানোর সময় হেডার নিশ্চিত করা
       const res = await api.get("/posts/neural-feed"); 
       setPosts(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error("Feed error:", err);
-      toast.error("Neural grid connection failed");
+      if (err.response?.status === 401) {
+        toast.error("Neural grid access denied. Re-authenticating...");
+        // যদি টোকেন এক্সপায়ার হয় তবে অটো লগআউট লজিক এখানে দিতে পারেন
+      } else {
+        toast.error("Neural grid offline");
+      }
     } finally {
       setLoading(false);
     }
@@ -162,16 +239,8 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
     }
   };
 
-  const getMediaUrl = (url) => {
-    if (!url) return null;
-    if (url.startsWith('http')) return url;
-    const baseUrl = (import.meta.env.VITE_API_URL || "").replace('/api', '');
-    return `${baseUrl}/${url.replace(/\\/g, '/')}`;
-  };
-
   const filteredPosts = useMemo(() => {
     let result = [...posts];
-    if (activeFilter === "Encrypted") result = result.filter(p => p.isEncrypted);
     if (searchQuery) {
       result = result.filter(p => 
         p.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -179,9 +248,13 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
       );
     }
     return result;
-  }, [posts, activeFilter, searchQuery]);
+  }, [posts, searchQuery]);
 
-  if (isAuthLoading) return null;
+  if (isAuthLoading) return (
+    <div className="bg-black min-h-screen flex items-center justify-center">
+      <div className="text-cyan-500 font-mono text-xs animate-pulse tracking-[0.3em]">INITIALIZING_NEURAL_LINK...</div>
+    </div>
+  );
 
   return (
     <div className="bg-black min-h-screen text-white font-sans selection:bg-cyan-500/30">
@@ -189,107 +262,70 @@ const PremiumHomeFeed = ({ searchQuery = "" }) => {
         <h2 className="text-lg font-black tracking-tighter uppercase italic">
           Onyx<span className="text-cyan-500 font-mono">Drift</span>
         </h2>
-        <FaSearch className="text-zinc-500 cursor-pointer hover:text-white transition-all" onClick={() => navigate("/explorer")} />
+        <FaSearch className="text-zinc-500 cursor-pointer hover:text-cyan-400 transition-colors" onClick={() => navigate("/explorer")} />
       </header>
 
       <main className="max-w-xl mx-auto border-x border-white/[0.05] min-h-screen bg-zinc-950/20">
         <CreatePost onPostCreated={fetchPosts} api={api} user={user} />
 
         <div className="flex border-b border-white/[0.05] sticky top-[60px] bg-black/80 backdrop-blur-md z-40">
-          {["Global", "Encrypted", "Following"].map(f => (
-            <button 
-              key={f} 
-              onClick={() => setActiveFilter(f)}
-              className="flex-1 py-4 text-[11px] font-bold uppercase tracking-widest relative"
-            >
+          {["Global", "Following"].map(f => (
+            <button key={f} onClick={() => setActiveFilter(f)} className="flex-1 py-4 text-[11px] font-bold uppercase tracking-widest relative">
               <span className={activeFilter === f ? "text-white" : "text-zinc-500"}>{f}</span>
-              {activeFilter === f && (
-                <motion.div 
-                  layoutId="activeTab" 
-                  className="absolute bottom-0 left-0 w-full h-[2px] bg-cyan-500 shadow-[0_0_10px_#06b6d4]" 
-                />
-              )}
+              {activeFilter === f && <motion.div layoutId="tab" className="absolute bottom-0 left-0 w-full h-[2px] bg-cyan-500" />}
             </button>
           ))}
         </div>
 
-        <div className="flex flex-col">
+        <div className="flex flex-col pb-20">
           {loading && posts.length === 0 ? (
-            <div className="p-20 text-center text-zinc-700 font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse">
-              Syncing_Neural_Grid...
-            </div>
-          ) : filteredPosts.length > 0 ? (
+            <div className="p-20 text-center text-cyan-500 font-mono text-[10px] animate-pulse uppercase tracking-[0.2em]">SYNCING_NEURAL_GRID...</div>
+          ) : filteredPosts.length === 0 ? (
+             <div className="p-20 text-center text-zinc-600 font-mono text-[10px] uppercase tracking-[0.2em]">No signals detected in the drift</div>
+          ) : (
             filteredPosts.map((post) => (
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }}
-                key={post._id} 
-                className="p-4 border-b border-white/[0.05] hover:bg-white/[0.01] transition-all group"
-              >
+              <div key={post._id} className="p-4 border-b border-white/[0.05] hover:bg-white/[0.01] transition-all group">
                 <div className="flex gap-3">
-                  <div className="flex flex-col items-center shrink-0">
-                    <div className="w-10 h-10 rounded-full bg-zinc-900 border border-white/10 overflow-hidden shadow-lg group-hover:border-cyan-500/30 transition-colors">
-                      <img 
-                        src={getMediaUrl(post.authorAvatar || post.authorProfilePic)} 
-                        alt="avatar" 
-                        className="w-full h-full object-cover" 
-                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${post.authorName || 'D'}&background=random`; }}
-                      />
+                  <img 
+                    src={getMediaUrl(post.authorAvatar || post.authorProfilePic) || `https://ui-avatars.com/api/?name=${post.authorName || 'D'}&background=18181b&color=71717a`} 
+                    className="w-10 h-10 rounded-full bg-zinc-900 object-cover border border-white/10"
+                    alt="" 
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="font-bold text-[14px] hover:underline cursor-pointer">{post.authorName || "Drifter"}</span>
+                      <span className="text-zinc-600 text-[12px]">· {new Date(post.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                     </div>
-                    <div className="w-[1px] grow bg-white/[0.05] my-2 group-hover:bg-white/10 transition-colors" />
-                  </div>
-
-                  <div className="flex-1 flex flex-col gap-1">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-[14px] text-zinc-100 hover:underline">{post.authorName || "Drifter"}</span>
-                        <span className="text-zinc-600 text-[13px]">@{post.authorName?.toLowerCase().replace(/\s/g, '') || "anon"}</span>
-                        <span className="text-zinc-700 text-[11px]">· {new Date(post.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                      </div>
-                    </div>
-
-                    <p className="text-[14px] text-zinc-300 leading-relaxed mb-2 whitespace-pre-wrap">{post.text || post.content}</p>
-
+                    <p className="text-[14.5px] text-zinc-300 leading-relaxed mb-3">{post.text}</p>
+                    
                     {post.media && (
-                      <div className="rounded-xl border border-white/[0.08] overflow-hidden my-2 bg-zinc-900/40 shadow-inner group-hover:border-white/20 transition-all">
-                        {post.mediaType === "video" || post.media.includes('/video/upload/') ? (
-                          <video 
-                            src={getMediaUrl(post.media)} 
-                            controls 
-                            className="w-full max-h-[400px] object-contain bg-black" 
-                          />
+                      <div className="my-3">
+                        {post.media.match(/\.(mp4|webm|mov|quicktime)$/i) ? (
+                          <NeuralVideoPlayer src={getMediaUrl(post.media)} />
                         ) : (
-                          <img 
-                            src={getMediaUrl(post.media)} 
-                            alt="media" 
-                            className="w-full h-auto object-cover max-h-[500px]" 
-                          />
+                          <img src={getMediaUrl(post.media)} className="rounded-xl w-full object-cover border border-white/5 shadow-2xl" alt="" />
                         )}
                       </div>
                     )}
 
-                    <div className="flex justify-between items-center max-w-sm mt-3 text-zinc-500">
-                      <button className="hover:text-cyan-400 flex items-center gap-2 transition-all">
-                        <FaRegComment size={15} /> <span className="text-[11px]">{post.comments?.length || 0}</span>
+                    <div className="flex justify-between max-w-sm mt-4 text-zinc-500">
+                      <button className="flex items-center gap-2 hover:text-cyan-400 transition-colors">
+                        <FaRegComment size={15}/> 
+                        <span className="text-xs">{post.comments?.length || 0}</span>
                       </button>
-                      <button className="hover:text-green-500 transition-all"><FaRetweet size={17} /></button>
                       <button 
                         onClick={() => handleLike(post._id)}
-                        className={`flex items-center gap-2 transition-all ${post.likes?.includes(user?._id) ? 'text-rose-500' : 'hover:text-rose-500'}`}
+                        className={`flex items-center gap-2 transition-colors ${post.likes?.includes(user?._id) ? 'text-rose-500' : 'hover:text-rose-500'}`}
                       >
-                        {post.likes?.includes(user?._id) ? <FaHeart size={15} /> : <FaRegHeart size={15} />}
-                        <span className="text-[11px] font-bold">{post.likes?.length || 0}</span>
+                        {post.likes?.includes(user?._id) ? <FaHeart size={15} className="drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]"/> : <FaRegHeart size={15}/>}
+                        <span className="text-xs font-bold">{post.likes?.length || 0}</span>
                       </button>
-                      <button className="hover:text-cyan-400 transition-all"><FaShare size={14} /></button>
+                      <button className="hover:text-cyan-400 transition-colors"><FaShare size={14}/></button>
                     </div>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             ))
-          ) : (
-            <div className="p-20 text-center text-zinc-800 font-mono text-[10px] tracking-widest uppercase">
-              ZERO_SIGNALS_DETECTED_IN_SECTOR
-            </div>
           )}
         </div>
       </main>

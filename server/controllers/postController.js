@@ -1,62 +1,43 @@
-import { v2 as cloudinary } from 'cloudinary';
-import Post from '../models/Post.js';
-import User from '../models/User.js';
 import fs from 'fs';
+import path from 'path';
+import { pool, redisClient } from '../config/db.js';
 
-// Cloudinary Config
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
-
+/* ==========================================================
+    ১. পোস্ট তৈরি (Create Post with Local Media)
+========================================================== */
 export const createPost = async (req, res) => {
   try {
-    const { text, type } = req.body;
-    const currentUserId = req.user?._id || req.user?.id || req.user?.sub;
+    const { text } = req.body;
+    const authorId = req.user?.id || req.user?._id;
 
-    if (!currentUserId) {
+    if (!authorId) {
       return res.status(401).json({ msg: "Neural Identity missing!" });
     }
 
     let mediaUrl = "";
-    let publicId = "";
+    let mediaType = "text";
 
-    // মিডিয়া আপলোড লজিক
+    // লোকাল ফাইল আপলোড লজিক (ফেসবুকের মতো নিজস্ব স্টোরেজ)
     if (req.file) {
-      try {
-        const uploadRes = await cloudinary.uploader.upload(req.file.path, {
-          resource_type: "auto", // অটোমেটিক ইমেজ বা ভিডিও ডিটেক্ট করবে
-          folder: "onyx_drift_posts",
-        });
-        mediaUrl = uploadRes.secure_url;
-        publicId = uploadRes.public_id;
-
-        // আপলোড হয়ে গেলে লোকাল ফাইল ডিলিট করে দেওয়া (সার্ভার ক্লিন রাখতে)
-        fs.unlinkSync(req.file.path);
-      } catch (uploadErr) {
-        console.error("Cloudinary Error:", uploadErr);
-        return res.status(500).json({ msg: "Media Server Unreachable" });
-      }
+      mediaUrl = `/uploads/${req.file.filename}`;
+      mediaType = req.file.mimetype.startsWith('video') ? 'video' : 'image';
     }
 
-    // ইউজার ডাটা ফেচ
-    const user = await User.findById(currentUserId);
+    // PostgreSQL এ ডাটা সেভ করা
+    const result = await pool.query(
+      `INSERT INTO posts (authorId, text, mediaUrl, mediaType) 
+       VALUES ($1, $2, $3, $4) 
+       RETURNING *`,
+      [authorId, text, mediaUrl, mediaType]
+    );
 
-    const newPost = new Post({
-      author: currentUserId,
-      authorName: user?.name || user?.username || "Unknown Drifter",
-      authorProfilePic: user?.profilePic || user?.avatar || "",
-      text: text,
-      mediaUrl: mediaUrl,
-      mediaType: req.file?.mimetype?.startsWith('video') ? 'video' : 'image',
-      publicId: publicId,
-      likes: [],
-      comments: []
+    // নতুন পোস্ট হলে ক্যাশ ক্লিয়ার করা যাতে ফিডে নতুন পোস্ট আসে
+    await redisClient.del('neural_feed');
+
+    res.status(201).json({
+      ...result.rows[0],
+      message: "Neural Post Synchronized!"
     });
-
-    const savedPost = await newPost.save();
-    res.status(201).json(savedPost);
 
   } catch (err) {
     console.error("❌ Neural Upload Error:", err);
@@ -64,67 +45,98 @@ export const createPost = async (req, res) => {
   }
 };
 
-// লাইক লজিক (Simplified)
-export const likePost = async (req, res) => {
+/* ==========================================================
+    ২. হোম ফিড ফেচ (Get Neural Feed with Redis Caching)
+========================================================== */
+export const getNeuralFeed = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
-    const userId = req.user?._id || req.user?.id;
-
-    if (!post.likes.includes(userId)) {
-      await post.updateOne({ $push: { likes: userId } });
-      const updatedPost = await Post.findById(req.params.id);
-      res.status(200).json(updatedPost);
-    } else {
-      await post.updateOne({ $pull: { likes: userId } });
-      const updatedPost = await Post.findById(req.params.id);
-      res.status(200).json(updatedPost);
+    // ১. প্রথমে Redis ক্যাশ চেক করো
+    const cachedPosts = await redisClient.get('neural_feed');
+    if (cachedPosts) {
+      console.log("⚡ Serving from Redis Cache");
+      return res.json(JSON.parse(cachedPosts));
     }
+
+    // ২. যদি ক্যাশ না থাকে, তবে PostgreSQL থেকে আনো (JOIN ব্যবহার করে অথর ডাটা আনা)
+    const result = await pool.query(`
+      SELECT 
+        p.*, 
+        u.fullName as "authorName", 
+        u.profilePic as "authorProfilePic",
+        u.username as "authorUsername",
+        (SELECT COUNT(*) FROM likes WHERE post_id = p.id) as "likesCount"
+      FROM posts p
+      JOIN users u ON p.authorId = u.id
+      ORDER BY p.createdAt DESC 
+      LIMIT 30
+    `);
+
+    // ৩. ৫ মিনিটের জন্য Redis-এ সেভ করে রাখো
+    await redisClient.setEx('neural_feed', 300, JSON.stringify(result.rows));
+
+    res.status(200).json(result.rows);
   } catch (err) {
-    res.status(500).json({ msg: "Pulse Error" });
+    console.error("Feed Error:", err);
+    res.status(500).json({ msg: "Neural grid connection failed" });
   }
 };
 
-// রিলস ফেচিং
+/* ==========================================================
+    ৩. রিলস ফেচিং (Get Reels Only)
+========================================================== */
 export const getReels = async (req, res) => {
   try {
-    const reels = await Post.find({ mediaType: 'video' })
-      .sort({ createdAt: -1 })
-      .limit(20);
-    res.status(200).json(reels);
+    const result = await pool.query(
+      `SELECT p.*, u.fullName, u.profilePic 
+       FROM posts p 
+       JOIN users u ON p.authorId = u.id 
+       WHERE mediaType = 'video' 
+       ORDER BY createdAt DESC LIMIT 20`
+    );
+    res.status(200).json(result.rows);
   } catch (err) {
     res.status(500).json({ msg: "Reels fetch failed" });
   }
 };
 
-// পালস (ভিউ) আপডেট
-export const updateReelPulse = async (req, res) => {
-    try {
-        const post = await Post.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } }, { new: true });
-        res.status(200).json(post);
-    } catch (err) {
-        res.status(500).json({ error: "Pulse sync failed" });
+/* ==========================================================
+    ৪. লাইক/আনলাইক লজিক (Atomic SQL Update)
+========================================================== */
+export const likePost = async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const userId = req.user.id;
+
+    // চেক করা ইউজার আগে লাইক দিয়েছে কি না
+    const checkLike = await pool.query(
+      'SELECT * FROM likes WHERE post_id = $1 AND user_id = $2',
+      [postId, userId]
+    );
+
+    if (checkLike.rows.length === 0) {
+      // লাইক দেওয়া
+      await pool.query('INSERT INTO likes (post_id, user_id) VALUES ($1, $2)', [postId, userId]);
+      await pool.query('UPDATE posts SET likes = likes + 1 WHERE id = $1', [postId]);
+    } else {
+      // আনলাইক করা
+      await pool.query('DELETE FROM likes WHERE post_id = $1 AND user_id = $2', [postId, userId]);
+      await pool.query('UPDATE posts SET likes = likes - 1 WHERE id = $1', [postId]);
     }
+
+    res.status(200).json({ message: "Pulse Updated" });
+  } catch (err) {
+    res.status(500).json({ msg: "Pulse Error" });
+  }
 };
 
-// কমেন্ট অ্যাড
-export const addComment = async (req, res) => {
+/* ==========================================================
+    ৫. পালস (ভিউ) আপডেট
+========================================================== */
+export const updateReelPulse = async (req, res) => {
   try {
-    const { text } = req.body;
-    const post = await Post.findById(req.params.id);
-    const user = await User.findById(req.user._id);
-
-    const comment = {
-      userId: user._id,
-      text,
-      userName: user.name,
-      userAvatar: user.profilePic,
-      createdAt: new Date()
-    };
-
-    post.comments.push(comment);
-    await post.save();
-    res.json(post.comments);
+    await pool.query('UPDATE posts SET views = views + 1 WHERE id = $1', [req.params.id]);
+    res.status(200).json({ success: true });
   } catch (err) {
-    res.status(500).json({ msg: "Comment failed" });
+    res.status(500).json({ error: "Pulse sync failed" });
   }
 };

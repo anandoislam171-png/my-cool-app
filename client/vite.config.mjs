@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
-        // ব্রাউজার সামঞ্জস্যের জন্য পলিফিলস
+        // প্রোডাকশন লেভেল পলিফিলস
         'util': 'util/', 
         'stream': 'stream-browserify',
         'buffer': 'buffer',
@@ -31,22 +31,33 @@ export default defineConfig(({ mode }) => {
 
     server: {
       port: 5173,
-      host: true,
+      host: true, 
       strictPort: true,
-      // historyApiFallback এর পরিবর্তে Vite-এর বিল্ট-ইন SPA হ্যান্ডলিং
       historyApiFallback: true, 
+      
+      // ডোমেইন সিকিউরিটি পারমিশন
+      allowedHosts: [
+        'onyx-drift.com',
+        'www.onyx-drift.com',
+        '.onyx-drift.com'
+      ],
+
+      // HMR (Hot Module Replacement) - স্টেবল কানেকশন ফিক্স
+      hmr: {
+        host: 'onyx-drift.com',
+        protocol: 'wss', // HTTPS এর জন্য সুরক্ষিত কানেকশন
+        clientPort: 443, 
+      }
     },
 
     optimizeDeps: {
-      // Node.js মডিউলগুলোকে ব্রাউজারে চালানোর জন্য ফোর্স করা
       include: [
         'buffer', 
         'stream-browserify', 
         'events',
         'util',
-        'process',
-        '@mediapipe/face_mesh',
-        '@mediapipe/hands',
+        'process'
+        // MediaPipe ডিলিট করা হয়েছে
       ],
       esbuildOptions: {
         define: {
@@ -58,20 +69,19 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: false,
-      chunkSizeWarningLimit: 4000,
+      chunkSizeWarningLimit: 2000, // লিমিট কমিয়ে অপ্টিমাইজ করা হয়েছে
       commonjsOptions: {
         transformMixedEsModules: true,
       },
       rollupOptions: {
         output: {
           manualChunks(id) {
-            // বড় ডিপেন্ডেন্সিগুলোকে আলাদা করে পারফরম্যান্স বাড়ানো
             if (id.includes('node_modules')) {
-              return 'vendor';
+              return 'vendor'; // লাইব্রেরিগুলোকে আলাদা চাঙ্কে ভাগ করা হয়েছে
             }
           }
         }
-      },
+      }
     },
   };
 });

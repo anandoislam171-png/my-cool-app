@@ -1,37 +1,57 @@
 version: '3.8'
 
 services:
-  # ১. মোঙ্গো ডিবি
-  mongodb:
-    image: mongo:latest
-    container_name: onyx_db
-    ports:
-      - "27017:27017"
-
-  # ২. রেডিস ক্যাশ
-  redis:
-    image: redis:alpine
-    container_name: onyx_cache
-    ports:
-      - "6379:6379"
-
-  # ৩. নোড জেএস সার্ভিস
-  node_app:
-    build:
-      context: ./server
-      dockerfile: Dockerfile.node
-    container_name: onyx_node_server
+  # --- ১. ব্যাকএন্ড সার্ভার (Onyx Core) ---
+  api:
+    build: .
     ports:
       - "10000:10000"
+    env_file:
+      - .env
     depends_on:
+      - postgres
       - mongodb
       - redis
+    networks:
+      - onyx-net
 
-  # ৪. জাভা অথ সার্ভিস
-  java_auth:
-    build:
-      context: ./server
-      dockerfile: Dockerfile.java
-    container_name: onyx_java_auth
+  # --- ২. PostgreSQL (Neural Storage) ---
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-62146214}
+      POSTGRES_DB: ${PG_DB:-onyxdrift}
     ports:
-      - "8080:8080"
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - onyx-net
+
+  # --- ৩. MongoDB (Metadata) ---
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    networks:
+      - onyx-net
+
+  # --- ৪. Redis (RAM Cache) ---
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - onyx-net
+
+networks:
+  onyx-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  mongodata:

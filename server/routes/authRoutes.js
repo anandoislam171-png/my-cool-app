@@ -2,14 +2,16 @@ import express from 'express';
 import passport from 'passport';
 import jwt from 'jsonwebtoken';
 
-// আপনার কন্ট্রোলার থেকে ফাংশনগুলো ইমপোর্ট করা
+// কন্ট্রোলার থেকে ফাংশনগুলো ইমপোর্ট করা
 import { 
   register, 
   login, 
   refreshToken, 
   getMe, 
   updateProfile,
-  googleLogin // এটি অবশ্যই কন্ট্রোলারে থাকতে হবে (নিচে বুঝিয়ে দিচ্ছি)
+  googleLogin,
+  forgotPassword, // নতুন ইমপোর্ট
+  resetPassword  // নতুন ইমপোর্ট
 } from '../controllers/authController.js';
 
 import { protect } from '../middleware/authMiddleware.js';
@@ -18,7 +20,7 @@ const router = express.Router();
 
 /* ==========================================================
     🔐 ১. স্ট্যান্ডার্ড অথেন্টিকেশন রাউটস (Email/Password)
-========================================================== */
+========================================================= */
 
 // নতুন ইউজার রেজিস্ট্রেশন
 router.post('/register', register);
@@ -37,7 +39,18 @@ router.put('/profile', protect, updateProfile);
 
 
 /* ==========================================================
-    🌐 ২. গুগল OAuth2 রাউটস (Social Login)
+    🛰️ ২. পাসওয়ার্ড রিকভারি রাউটস (Recovery Protocol)
+========================================================== */
+
+// পাসওয়ার্ড রিসেট লিঙ্ক পাঠানোর রিকোয়েস্ট
+router.post('/forgot-password', forgotPassword);
+
+// নতুন পাসওয়ার্ড সেট করা (টোকেন সহ)
+router.post('/reset-password/:token', resetPassword);
+
+
+/* ==========================================================
+    🌐 ৩. গুগল OAuth2 রাউটস (Social Login)
 ========================================================== */
 
 /**
@@ -45,37 +58,40 @@ router.put('/profile', protect, updateProfile);
  * @desc    ফ্রন্টএন্ড থেকে আসা গুগল টোকেন ভেরিফাই করে লগইন করা
  * @access  Public
  */
-router.post('/google', googleLogin); // এই রাউটটিই আপনার ফ্রন্টএন্ড কল করছে
+router.post('/google', googleLogin); 
 
 
-/** * নিচের রাউটগুলো পাসপোর্ট জেএস (Redirect Method) এর জন্য। 
- * আপনি যদি সরাসরি ফ্রন্টএন্ডে গুগল বাটন ইউজ করেন তবে এগুলো ঐচ্ছিক।
+/** * ৪. পাসপোর্ট জেএস (Redirect Method) - ঐচ্ছিক
  */
 
-// গুগলের সাইন-ইন পেজে নিয়ে যাবে (Passport Method)
+// গুগলের সাইন-ইন পেজে নিয়ে যাবে
 router.get('/google/redirect', passport.authenticate('google', { 
   scope: ['profile', 'email'],
   prompt: 'select_account' 
 }));
 
-// গুগল থেকে ফিরে আসার পর এই রাউট কাজ করবে
+// গুগল থেকে ফিরে আসার পর এই রাউট কাজ করবে (Callback)
 router.get('/google/callback', 
   passport.authenticate('google', { session: false, failureRedirect: '/login' }),
   (req, res) => {
     try {
+      // টোকেন জেনারেট করা
       const token = jwt.sign(
-        { id: req.user._id }, 
+        { id: req.user._id.toString() }, 
         process.env.JWT_SECRET, 
         { expiresIn: '30d' }
       );
 
+      // প্রোডাকশন ইউআরএল (OnyxDrift Domain)
       const frontendURL = process.env.NODE_ENV === 'production' 
-        ? "https://onyx-drift-app-final.vercel.app" 
+        ? "https://onyx-drift.com" 
         : "http://localhost:5173";
 
-      res.redirect(`${frontendURL}/login?token=${token}`);
+      // সাকসেস হলে ফ্রন্টএন্ডে টোকেনসহ রিডাইরেক্ট
+      res.redirect(`${frontendURL}/login-success?token=${token}`);
     } catch (error) {
-      console.error("Google Auth Redirect Error:", error);
+      console.error("🔥 Google Auth Redirect Error:", error);
+      const frontendURL = process.env.NODE_ENV === 'production' ? "https://onyx-drift.com" : "http://localhost:5173";
       res.redirect(`${frontendURL}/login?error=auth_failed`);
     }
   }

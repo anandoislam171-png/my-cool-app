@@ -1,47 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OnyxDrift | Neural Network</title>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <title>OnyxDrift | Neural Social Network</title>
+  <meta name="description" content="OnyxDrift - The future of social collaboration." />
 
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559531/face_mesh.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424982/hands.js" crossorigin="anonymous"></script>
+  <script>
+    /* পলিফিলস: লাইব্রেরিগুলোর নোড এনভায়রনমেন্ট ইস্যু ফিক্স করার জন্য */
+    window.global = window;
+    window.process = window.process || {
+      env: { NODE_ENV: "development" },
+      browser: true
+    };
+    
+    // MediaPipe-এর ফাংশনটি এখান থেকে পুরোপুরি ডিলিট করা হয়েছে
+  </script>
+  <script type="module" crossorigin src="/assets/index-BfGKPKmx.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/vendor-CzlNDwyG.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-BaRRIC1z.css">
+</head>
 
-    <script>
-      /* ==========================================================
-          🧠 NEURAL OS GATEKEEPER - ইনিশিয়ালাইজেশন এবং পলিফিল
-      ========================================================== */
-      
-      // Global Object Fix
-      window.global = window;
-      
-      // Process Object Polyfill
-      window.process = window.process || { 
-        env: { NODE_ENV: 'production' },
-        nextTick: (fn) => setTimeout(fn, 0),
-        browser: true
-      };
-
-      /**
-       * ⚡ MediaPipe File Locator Fix
-       * এই ফাংশনটি WASM এবং বাইনারি ফাইলগুলোকে CDN থেকে সঠিক MIME টাইপে লোড নিশ্চিত করে।
-       */
-      window.locateMediaPipeFile = function(file, solution) {
-        // CDN এর ফাইলগুলো যাতে সঠিকভাবে লোড হয়
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/${solution}/${file}`;
-      };
-    </script>
-    
-    <script type="module" crossorigin src="/assets/index-BABdLVgl.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-BJNYbeiq.js">
-    <link rel="modulepreload" crossorigin href="/assets/mediapipe_core-BFN590hv.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CUSNPdxD.css">
-  </head>
-  <body class="bg-[#020617] text-white">
-    <div id="root"></div>
-    
-  </body>
+<body class="bg-[#020617] text-white antialiased">
+  <div id="root"></div>
+
+</body>
 </html>

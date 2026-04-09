@@ -2,70 +2,67 @@ import { auth } from 'express-oauth2-jwt-bearer';
 import User from "../models/User.js"; 
 
 /**
- * 🔐 Auth0 JWT Validation Configuration
- * আপনার কনসোল এরর অনুযায়ী ডোমেইনটি একদম নির্ভুল করা হয়েছে।
+ * 🔐 OAuth2 JWT Validation Configuration
+ * এখানে আপনার Google বা অন্য OAuth2 প্রোভাইডারের ডাটা বসবে।
  */
 const checkJwt = auth({
-  // Render-এর এনভায়রনমেন্ট ভ্যারিয়েবল অথবা ডিফল্ট হিসেবে আপনার বর্তমান API Identifier
-  audience: process.env.AUTH0_AUDIENCE || 'https://onyx-drift-api.com', 
+  // ১. আপনার Google Client ID বা API Identifier এখানে বসবে
+  audience: process.env.OAUTH2_AUDIENCE || 'YOUR_OAUTH2_CLIENT_ID', 
   
-  // ডোমেইন ফরম্যাটটি আপনার লেটেস্ট সেটিংস অনুযায়ী ফিক্স করা হয়েছে
-  issuerBaseURL: `https://${process.env.AUTH0_DOMAIN || 'dev-prxn6v2o08xp5loz.us.auth0.com'}/`, 
+  // ২. আপনার OAuth2 প্রোভাইডারের বেস ইউআরএল (যেমন Google-এর জন্য https://accounts.google.com)
+  issuerBaseURL: process.env.OAUTH2_ISSUER || 'https://accounts.google.com', 
+  
   tokenSigningAlg: 'RS256'
 });
 
 /**
  * 🧠 Smart Auth Middleware with Database Sync
- * এটি টোকেন ভেরিফাই করে এবং ইউজার প্রোফাইল স্বয়ংক্রিয়ভাবে MongoDB-তে সিঙ্ক করে।
  */
 const authMiddleware = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
-  // ১. যদি টোকেন না থাকে (Guest User/Public Access)
-  if (!authHeader) {
+  // ১. টোকেন না থাকলে গেস্ট মোড
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
     req.user = { isGuest: true, id: null };
     return next();
   }
 
-  // ২. টোকেন থাকলে সেটি Auth0 দিয়ে ভেরিফাই করো
+  // ২. OAuth2 টোকেন ভেরিফিকেশন
   checkJwt(req, res, async (err) => {
     if (err) {
-      console.warn("⚠️ Neural Sync Interrupted (Invalid Token):", err.message);
+      console.warn("⚠️ Neural Sync Interrupted (Invalid OAuth2 Token):", err.message);
       
-      // গুরুত্বপূর্ণ অ্যাকশন (Create/Update/Delete) হলে ৪০১ এরর দাও
+      // শুধুমাত্র ডাটা পরিবর্তন করার রিকোয়েস্টে (POST/PUT/DELETE) এরর দাও
       if (req.method !== "GET") {
-         return res.status(401).json({ 
-           error: "Neural Grid Breakdown",
-           message: "Session expired or invalid token. Please login again." 
-         });
+        return res.status(401).json({ 
+          error: "Neural Grid Breakdown",
+          message: "Invalid or expired session. Please login again." 
+        });
       }
       
       req.user = { isGuest: true, id: null };
       return next();
     }
     
-    // ৩. টোকেন ভ্যালিড হলে ডাটাবেসে ইউজার ডাটা সিঙ্ক (Upsert) করো
+    // ৩. টোকেন ভ্যালিড হলে ডাটাবেসে সিঙ্ক (Upsert)
     try {
       if (req.auth && req.auth.payload) {
         const payload = req.auth.payload;
-        const auth0Id = payload.sub;
+        const oauthId = payload.sub; // ইউনিক আইডি (OAuth2 Standard)
 
-        // আপডেট করার জন্য ডাইনামিক ডাটা অবজেক্ট
+        // ডাইনামিক ডাটা অবজেক্ট (আপনার মডেল অনুযায়ী)
         const updateData = {
-          auth0Id: auth0Id,
-          name: payload.name || payload.nickname || "Drifter",
-          nickname: payload.nickname || `drifter_${auth0Id.slice(-5)}`,
-          avatar: payload.picture || ""
+          oauthId: oauthId,
+          firstName: payload.given_name || payload.name?.split(' ')[0] || "Drifter",
+          lastName: payload.family_name || payload.name?.split(' ')[1] || "",
+          email: payload.email,
+          avatar: payload.picture || "",
+          username: payload.nickname || payload.preferred_username || `drifter_${oauthId.slice(-5)}`
         };
 
-        // ইমেইল থাকলে সেটি যোগ হবে যাতে ইমেইল ছাড়া ইউজারদের ক্ষেত্রে এরর না আসে
-        if (payload.email) {
-          updateData.email = payload.email;
-        }
-
-        // MongoDB-তে ইউজার খুঁজুন এবং আপডেট করুন
+        // MongoDB-তে ইউজার সিঙ্ক করা
         const user = await User.findOneAndUpdate(
-          { auth0Id: auth0Id },
+          { $or: [{ oauthId: oauthId }, { email: payload.email }] },
           { $set: updateData },
           { 
             upsert: true, 
@@ -75,13 +72,13 @@ const authMiddleware = (req, res, next) => {
           }
         );
 
-        // রিকোয়েস্ট অবজেক্টে প্রসেসড ইউজার ডাটা সেট করা
+        // রিকোয়েস্ট অবজেক্টে ডাটা সেট করা যাতে সব কন্ট্রোলার এটি পায়
         req.user = {
-          id: auth0Id,
-          sub: auth0Id,
-          mongoId: user._id,
+          id: user._id.toString(), // MongoDB ObjectId
+          oauthId: oauthId,
           isGuest: false,
-          name: user.name
+          username: user.username,
+          activeMode: user.activeMode || 'minimal'
         };
         
         next();
@@ -90,14 +87,8 @@ const authMiddleware = (req, res, next) => {
         next();
       }
     } catch (dbErr) {
-      // ডাটাবেস এরর হলে লগ করে গেস্ট হিসেবে এগিয়ে যাও যাতে অ্যাপ ক্রাশ না করে
       console.error("❌ Neural Database Sync Error:", dbErr.message);
-      
-      req.user = {
-        id: req.auth?.payload?.sub,
-        isGuest: false,
-        dbError: true
-      };
+      req.user = { isGuest: false, dbError: true };
       next();
     }
   });

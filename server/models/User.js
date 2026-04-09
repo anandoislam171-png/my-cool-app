@@ -31,9 +31,16 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: [true, "Password is required"],
-    minlength: 6
+    minlength: 6,
+    select: false // ডাটাবেজ থেকে ইউজার কল করলে পাসওয়ার্ড অটো আসবে না (নিরাপদ)
   },
-  // OnyxDrift এর ৪টি স্পেশাল মোড
+  
+  // 🔗 OAuth & Recovery (আপনার কন্ট্রোলারের জন্য জরুরি)
+  oauthId: { type: String, unique: true, sparse: true }, // গুগল বা কাস্টম লগইনের জন্য
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
+
+  // 🤖 OnyxDrift এর ৪টি স্পেশাল মোড
   activeMode: {
     type: String,
     enum: ['minimal', 'video', 'chat', 'knowledge'],
@@ -51,7 +58,9 @@ const userSchema = new mongoose.Schema({
   timestamps: true // createdAt এবং updatedAt অটোমেটিক ম্যানেজ হবে
 });
 
-// --- পাসওয়ার্ড সেভ করার আগে অটোমেটিক এনক্রিপশন ---
+/* ==========================================================
+    🔐 ১. পাসওয়ার্ড সেভ করার আগে অটোমেটিক এনক্রিপশন
+========================================================== */
 userSchema.pre('save', async function(next) {
   // যদি পাসওয়ার্ড মডিফাই না হয়, তবে পরবর্তী স্টেপে চলে যাও
   if (!this.isModified('password')) return next();
@@ -65,9 +74,11 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// --- লগইন করার সময় পাসওয়ার্ড চেক করার মেথড ---
+/* ==========================================================
+    🔑 ২. লগইন করার সময় পাসওয়ার্ড চেক করার মেথড
+========================================================== */
 userSchema.methods.matchPassword = async function(enteredPassword) {
-  // enteredPassword হলো ইউজারের দেওয়া টেক্সট, আর this.password হলো ডাটাবেজের হ্যাশ
+  // যেহেতু password 'select: false', তাই কন্ট্রোলারে .select('+password') করতে হবে
   return await bcrypt.compare(enteredPassword, this.password);
 };
 

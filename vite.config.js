@@ -14,7 +14,6 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       nodePolyfills({
-        // এটিই আপনার util এবং stream এররগুলো অটোমেটিক সমাধান করবে
         protocolImports: true,
       }),
     ],
@@ -27,7 +26,6 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
-        // অতিরিক্ত alias এখন আর প্রয়োজন নেই কারণ nodePolyfills প্লাগইনটি তা হ্যান্ডেল করবে
       },
     },
 
@@ -35,7 +33,12 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       host: true,
       strictPort: true,
-      historyApiFallback: true, 
+      historyApiFallback: true,
+      // আপনার ডোমেইনগুলোকে পারমিশন দেওয়া হচ্ছে
+      allowedHosts: [
+        'onyx-drift.com',
+        'www.onyx-drift.com'
+      ]
     },
 
     optimizeDeps: {
@@ -69,7 +72,7 @@ export default defineConfig(({ mode }) => {
             }
           }
         }
-      },
+      }
     },
   };
 });
